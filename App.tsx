@@ -5,52 +5,46 @@ import Layout from './components/Layout';
 import { useApp, AppProvider } from './context/AppContext';
 import { fetchSurahList, fetchSurahDetail, fetchPrayerTimings, getRamadanCountdown, fetchRandomHadith, fetchRamadanCalendar, getRamadanHistory, saveSurahToCache, isSurahCached, removeSurahFromCache } from './services/quranService';
 import { fetchHadiths, HADITH_BOOKS, HadithBook, HadithData } from './services/hadithService';
-import { SurahMetadata, SurahDetail, ThemeMode, PrayerTimings, HijriDate, Hadith, Ayah } from './types';
-import { UI_TRANSLATIONS, APP_LANGUAGES, PRAYER_RAKATS, PRAYER_DUAS } from './constants';
+import { SurahMetadata, SurahDetail, ThemeMode, PrayerTimings, HijriDate, Hadith, Ayah, ReadingViewMode, BookmarkCategory } from './types';
+import { UI_TRANSLATIONS, APP_LANGUAGES, PRAYER_RAKATS, PRAYER_DUAS, BENGALI_SURAH_NAMES } from './constants';
 import { 
   ChevronRight, Search, Bookmark as BookmarkIcon, 
   Settings as SettingsIcon, Play, BookOpen, 
   ArrowLeft, Plus, Minus, Moon, Sun, BookmarkCheck,
-  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity, Brain
+  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity, Brain, ArrowUpCircle, Sparkles, Palette, Bell, BellRing, Send, ShieldCheck, Bookmark, Calculator, Target
 } from 'lucide-react';
 import AudioPlayer from './components/AudioPlayer';
 import TasbihView from './components/TasbihView';
 import IslamicGames from './components/IslamicGames';
-
-const LiveClock: React.FC = () => {
-  const [time, setTime] = useState(new Date());
-  const { language } = useApp();
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const timeString = time.toLocaleTimeString(language, { 
-    hour: '2-digit', 
-    minute: '2-digit', 
-    second: '2-digit',
-    hour12: true 
-  });
-  
-  const dateString = time.toLocaleDateString(language, { 
-    weekday: 'short', 
-    day: 'numeric',
-    month: 'short', 
-    year: 'numeric' 
-  });
-
-  return (
-    <div className="text-right flex flex-col items-end">
-      <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tracking-tighter tabular-nums leading-none">
-        {timeString}
-      </div>
-      <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-1.5 bg-slate-100 dark:bg-slate-800/50 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-        {dateString}
-      </div>
-    </div>
-  );
-};
+import UpdateModal from './components/UpdateModal';
+import ThemeSelectorModal from './components/ThemeSelectorModal';
+import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { AdminBroadcastModal } from './components/AdminBroadcastModal';
+import { ContactAdminModal } from './components/ContactAdminModal';
+import { InAppNotificationBanner } from './components/InAppNotificationBanner';
+import { SalamGreeting } from './components/SalamGreeting';
+import { RamadanDedicatedView } from './components/RamadanDedicatedView';
+import { BookmarkModal } from './components/BookmarkModal';
+import { DailyAyahCard } from './components/DailyAyahCard';
+import { HisnulMuslimView } from './components/HisnulMuslimView';
+import { KhatamTrackerView } from './components/KhatamTrackerView';
+import { AsmaulHusnaView } from './components/AsmaulHusnaView';
+import { ZakatCalculatorView } from './components/ZakatCalculatorView';
+import { FridayJummahHub } from './components/FridayJummahHub';
+import { AyahSocialCardModal, AyahCardData } from './components/AyahSocialCardModal';
+import { 
+  subscribeAnnouncements, 
+  getReadAnnouncementIds, 
+  markAnnouncementAsRead,
+  startAutoCleanupWorker,
+  triggerSystemNotification,
+  getNotificationPreferences,
+  shouldShowAnnouncement,
+  playPoliteChime
+} from './services/announcementService';
+import { Announcement, NotificationPreferences } from './types';
+import { THEME_LIST, ISLAMIC_THEMES } from './themes';
+import { checkForAppUpdate, UpdateInfo, CURRENT_APP_VERSION } from './services/updateService';
 
 const OfflineManager: React.FC = () => {
   const { language } = useApp();
@@ -225,13 +219,63 @@ const AppContent: React.FC = () => {
   const [currentHadith, setCurrentHadith] = useState<Hadith | null>(null);
   const [ramadanCalendar, setRamadanCalendar] = useState<any[]>([]);
   const [showRamadanHistory, setShowRamadanHistory] = useState(false);
+  const [showRamadanCalendarPreview, setShowRamadanCalendarPreview] = useState(false);
   const [ramadanHistory] = useState(getRamadanHistory());
+  const [isRamadanDemoActive, setIsRamadanDemoActive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ramadan_demo_highlight') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleRamadanDemoActive = () => {
+    setIsRamadanDemoActive(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('ramadan_demo_highlight', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const isCurrentlyRamadan = Boolean(
+    prayerData?.hijri?.month?.number === 9 || 
+    prayerData?.hijri?.month?.en?.toLowerCase().includes('ramadan') ||
+    prayerData?.hijri?.month?.ar?.includes('রমضان') ||
+    isRamadanDemoActive
+  );
   const [expandedPrayer, setExpandedPrayer] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [previewSurah, setPreviewSurah] = useState<SurahMetadata | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
   const [downloadingSurah, setDownloadingSurah] = useState<number | null>(null);
   
+  // App In-App Update States
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusText, setUpdateStatusText] = useState<string | null>(null);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [isBookmarkModalOpen, setIsBookmarkModalOpen] = useState(false);
+  const [readingViewMode, setReadingViewMode] = useState<ReadingViewMode>('all');
+  const [socialCardData, setSocialCardData] = useState<AyahCardData | null>(null);
+  const [isSocialCardOpen, setIsSocialCardOpen] = useState(false);
+
+  const handleOpenSocialCard = (data: AyahCardData) => {
+    setSocialCardData(data);
+    setIsSocialCardOpen(true);
+  };
+
+  // Cloud Announcements & Push Notification states
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => getReadAnnouncementIds());
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isAdminBroadcastModalOpen, setIsAdminBroadcastModalOpen] = useState(false);
+  const [isContactAdminModalOpen, setIsContactAdminModalOpen] = useState(false);
+  const [latestUnseenAnnouncement, setLatestUnseenAnnouncement] = useState<Announcement | null>(null);
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(() => getNotificationPreferences());
+
   // Hadith browsing states
   const [selectedHadithBook, setSelectedHadithBook] = useState<HadithBook | null>(null);
   const [hadithList, setHadithList] = useState<HadithData[]>([]);
@@ -241,6 +285,8 @@ const AppContent: React.FC = () => {
   const { 
     language, setLanguage, 
     theme, setTheme,
+    islamicTheme, setIslamicTheme,
+    activeThemeConfig,
     arabicFontSize, setArabicFontSize,
     translationFontSize, setTranslationFontSize,
     bookmarks, addBookmark, removeBookmark,
@@ -296,24 +342,96 @@ const AppContent: React.FC = () => {
       }
     };
     loadData();
+
+    // Check for app updates in background
+    checkForAppUpdate().then((info) => {
+      if (info && info.hasUpdate) {
+        setUpdateInfo(info);
+        setIsUpdateModalOpen(true);
+      }
+    });
+
+    // Real-time Cloud Announcements listener (Firebase Firestore)
+    const unsubscribeAnnouncements = subscribeAnnouncements((list) => {
+      setAnnouncements(list);
+      const readIds = getReadAnnouncementIds();
+      setReadAnnouncementIds(readIds);
+
+      // Check if new unread announcement exists and user allows it without disturbance
+      const unreadList = list.filter(a => !readIds.includes(a.id));
+      if (unreadList.length > 0) {
+        const newest = unreadList[0];
+        const prefs = getNotificationPreferences();
+        if (shouldShowAnnouncement(newest, prefs)) {
+          if (prefs.bannerPopup && !prefs.doNotDisturb) {
+            setLatestUnseenAnnouncement(newest);
+          }
+          if (prefs.soundEnabled && !prefs.doNotDisturb) {
+            playPoliteChime();
+          }
+          if (!prefs.doNotDisturb) {
+            triggerSystemNotification(newest.title, newest.message);
+          }
+        }
+      }
+    });
+
+    // Start automated 24-hour cleanup worker (0 KB residual backend storage policy)
+    const stopCleanupWorker = startAutoCleanupWorker(60 * 1000);
+
+    return () => {
+      unsubscribeAnnouncements();
+      stopCleanupWorker();
+    };
   }, []);
+
+  const unreadAnnouncementsCount = announcements.filter(a => !readAnnouncementIds.includes(a.id)).length;
+
+  const handleManualUpdateCheck = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStatusText(null);
+    try {
+      const info = await checkForAppUpdate(true);
+      if (info && info.hasUpdate) {
+        setUpdateInfo(info);
+        setIsUpdateModalOpen(true);
+        setUpdateStatusText(language === 'bn' ? 'নতুন আপডেট পাওয়া গেছে!' : 'New update available!');
+      } else {
+        setUpdateStatusText(language === 'bn' ? `আপনার অ্যাপটি সম্পূর্ণ আপ-টু-ডেট আছে (v${CURRENT_APP_VERSION})` : `Your app is completely up to date (v${CURRENT_APP_VERSION})`);
+      }
+    } catch {
+      setUpdateStatusText(language === 'bn' ? 'আপডেট চেক করতে সমস্যা হয়েছে, ইন্টারনেট সংযোগ চেক করুন।' : 'Failed to check updates, please check internet connection.');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     const handler = setTimeout(() => setSearchQuery(inputValue), 300);
     return () => clearTimeout(handler);
   }, [inputValue]);
 
-  const handleSurahClick = async (num: number) => {
+  const handleSurahClick = async (num: number, targetAyah: number = 1) => {
     setIsLoading(true);
     try {
       const detail = await fetchSurahDetail(num, language);
       setSelectedSurah(detail);
       updateLastRead({
         surahNumber: num,
-        ayahNumber: 1,
+        ayahNumber: targetAyah,
         surahName: detail.englishName,
         timestamp: Date.now()
       });
+      if (targetAyah > 1) {
+        setTimeout(() => {
+          const el = document.getElementById(`ayah-${targetAyah}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ring-2', 'ring-amber-500');
+            setTimeout(() => el.classList.remove('ring-2', 'ring-amber-500'), 2500);
+          }
+        }, 350);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -343,11 +461,22 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const filteredSurahs = surahs.filter(s => 
-    s.englishName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    s.number.toString() === searchQuery ||
-    s.name.includes(searchQuery)
-  );
+  const filteredSurahs = surahs.filter(s => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    // Match exact or startsWith number (e.g. 36, 1, 114)
+    if (s.number.toString() === q || s.number.toString().startsWith(q)) return true;
+    // Match English name
+    if (s.englishName.toLowerCase().includes(q)) return true;
+    // Match English translation
+    if (s.englishNameTranslation.toLowerCase().includes(q)) return true;
+    // Match Arabic name
+    if (s.name.includes(q)) return true;
+    // Match Bengali names from dictionary
+    const bnList = BENGALI_SURAH_NAMES[s.number] || [];
+    if (bnList.some(bn => bn.includes(q) || q.includes(bn))) return true;
+    return false;
+  });
 
   // First time welcome view
   if (!userName) {
@@ -401,62 +530,281 @@ const AppContent: React.FC = () => {
       transition={{ duration: 0.3 }}
       className="space-y-6 pt-4 pb-12"
     >
-      <header className="flex justify-between items-start px-1">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-emerald-600 dark:text-emerald-400 font-black text-xs uppercase tracking-[0.2em] bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded-lg">Assalamu Alaikum</span>
-          </div>
-          <h1 className="text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight leading-tight mt-2">
-            {userName}
-          </h1>
-          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mt-2">
-             <MapPin size={12} className="text-emerald-500" />
-             <span className="text-[10px] font-bold uppercase tracking-wider">{locationName || t.currentLocation}</span>
-          </div>
+      <header className="flex justify-between items-center px-1">
+        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+           <MapPin size={13} style={{ color: activeThemeConfig.primaryColor }} />
+           <span className="text-[11px] font-bold uppercase tracking-wider">{locationName || t.currentLocation}</span>
         </div>
-        <LiveClock />
+        <div className="flex items-center gap-2">
+          {/* Saved Bookmarks Hub Button */}
+          <button
+            onClick={() => setIsBookmarkModalOpen(true)}
+            aria-label="Bookmarks"
+            className="relative p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all"
+            title={language === 'bn' ? 'সংরক্ষিত বুকমার্ক' : 'Saved Bookmarks'}
+          >
+            <BookmarkIcon size={20} />
+            {bookmarks.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white font-black text-[9px] flex items-center justify-center shadow-sm">
+                {bookmarks.length > 9 ? '9+' : bookmarks.length}
+              </span>
+            )}
+          </button>
+
+          {/* Announcements & Notifications Bell */}
+          <button
+            onClick={() => setIsNotificationModalOpen(true)}
+            aria-label="Notifications"
+            className="relative p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all"
+            title={language === 'bn' ? 'বার্তা ও বিজ্ঞপ্তি' : 'Announcements & Notifications'}
+          >
+            <Bell size={20} />
+            {unreadAnnouncementsCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white font-black text-[10px] flex items-center justify-center shadow-md animate-pulse">
+                {unreadAnnouncementsCount > 9 ? '9+' : unreadAnnouncementsCount}
+              </span>
+            )}
+          </button>
+        </div>
       </header>
 
-      {ramadanDays !== null && ramadanDays > 0 && (
-        <div className="bg-white dark:bg-slate-800 p-1 rounded-[2.5rem] shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50 border border-white/20 dark:border-slate-700/30 relative overflow-hidden group">
-          <div className="bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 p-6 rounded-[2.2rem] flex items-center justify-between relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-5 dark:opacity-10 group-hover:scale-125 transition-transform duration-700"><Moon size={80} fill="currentColor" className="text-amber-600 dark:text-amber-400" /></div>
-            <div className="flex items-center gap-5 relative z-10">
-              <div className="w-14 h-14 bg-white dark:bg-slate-800 rounded-2xl flex items-center justify-center shadow-sm text-amber-500 dark:text-amber-400"><Calendar size={24} /></div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400 mb-1">{t.ramadanCountdown}</p>
-                <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100">{ramadanDays} <span className="text-base font-bold text-slate-500 dark:text-slate-400">{t.daysLeft}</span></h3>
+      {/* 1. Animated Salam Greeting with Voice Recitation */}
+      <SalamGreeting userName={userName} />
+
+      {/* 2. Sleek Theme Color Dots (Only the 5 circular color dots, zero wasted space) */}
+      <div className="flex items-center justify-between py-0.5 px-0.5">
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+          {language === 'bn' ? 'থিম কালার:' : 'Theme Color:'}
+        </span>
+        <div className="flex items-center gap-2.5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 shadow-xs">
+          {THEME_LIST.map((th) => {
+            const isCurr = islamicTheme === th.id;
+            return (
+              <button
+                key={th.id}
+                onClick={() => setIslamicTheme(th.id)}
+                title={th.nameBn}
+                aria-label={th.nameBn}
+                className={`relative w-5 h-5 rounded-full transition-all duration-200 active:scale-90 flex items-center justify-center ${
+                  isCurr 
+                    ? 'ring-2 ring-offset-2 ring-slate-700 dark:ring-offset-slate-900 scale-110 shadow-sm' 
+                    : 'hover:scale-110 opacity-75 hover:opacity-100'
+                }`}
+                style={{
+                  backgroundColor: th.primaryColor
+                }}
+              >
+                {isCurr && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white shadow-xs" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 2.4 AUTOMATIC RAMADAN SPECIAL HIGHLIGHT (Continuously animated when Ramadan arrives) */}
+      {isCurrentlyRamadan && (
+        <motion.div 
+          onClick={() => setActiveTab('ramadan')}
+          animate={{
+            boxShadow: [
+              '0 10px 25px -5px rgba(245, 158, 11, 0.35), 0 8px 10px -6px rgba(245, 158, 11, 0.25)',
+              '0 20px 40px -5px rgba(245, 158, 11, 0.65), 0 12px 20px -6px rgba(245, 158, 11, 0.45)',
+              '0 10px 25px -5px rgba(245, 158, 11, 0.35), 0 8px 10px -6px rgba(245, 158, 11, 0.25)'
+            ]
+          }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+          className="p-5 sm:p-6 rounded-[2.5rem] bg-gradient-to-r from-amber-600 via-amber-700 to-yellow-600 text-white cursor-pointer active:scale-[0.98] transition-all group relative overflow-hidden border-2 border-amber-300/60"
+        >
+          {/* Animated Ambient Light Ray */}
+          <motion.div 
+            animate={{ x: ['-100%', '200%'] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: 'linear' }}
+            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none"
+          />
+
+          <div className="flex items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3.5 overflow-hidden">
+              {/* Animated Floating Crescent Icon */}
+              <motion.div 
+                animate={{ 
+                  rotate: [0, 8, -8, 0],
+                  scale: [1, 1.08, 1]
+                }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0 shadow-lg shadow-amber-900/30 border border-white/30"
+              >
+                <Moon size={28} className="text-yellow-200 fill-yellow-300 drop-shadow-md" />
+              </motion.div>
+
+              <div className="overflow-hidden">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400"></span>
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-200 block truncate">
+                    {language === 'bn' ? '🌙 মাহে রমাদানুল মুবারক • ডেডিকেটেড স্পেশাল' : '🌙 Ramadan Al-Mubarak • Special Dedicated Hub'}
+                  </span>
+                </div>
+
+                <h3 className="font-black text-base sm:text-lg truncate">
+                  {language === 'bn' ? 'আজ রমাদানের রোজা পালন চলছে' : 'Ramadan Fasting is Ongoing Today'}
+                </h3>
+
+                <p className="text-xs text-amber-100/90 font-bold truncate">
+                  {prayerData?.timings?.Fajr 
+                    ? (language === 'bn' 
+                        ? `সেহরি শেষ: ${prayerData.timings.Fajr.split(' ')[0]} • ইফতার: ${prayerData.timings.Maghrib.split(' ')[0]}` 
+                        : `Sehri Ends: ${prayerData.timings.Fajr.split(' ')[0]} • Iftar: ${prayerData.timings.Maghrib.split(' ')[0]}`) 
+                    : (language === 'bn' ? 'সেহরি ও ইফতার সময়সূচি, দু\'আ ও আমল' : 'Sehri & Iftar Timings, Duas & Amal')}
+                </p>
               </div>
             </div>
-            <div className="w-10 h-10 bg-white/50 dark:bg-slate-800/50 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400 group-hover:bg-white dark:group-hover:bg-slate-800 transition-colors">
-              <ChevronRight size={20} />
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="px-3.5 py-2 rounded-xl bg-white text-amber-950 text-xs font-black shadow-md group-hover:bg-amber-100 transition-colors flex items-center gap-1">
+                <span>{language === 'bn' ? 'রমাদান হাব' : 'Ramadan Hub'}</span>
+                <ChevronRight size={14} />
+              </span>
             </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* 2.5 Friday Mubarak Special Banner (Automatically displayed every Friday) */}
+      {new Date().getDay() === 5 && (
+        <div 
+          onClick={() => setActiveTab('jummah')}
+          className="p-5 rounded-[2.2rem] bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 text-white shadow-xl shadow-amber-600/25 cursor-pointer active:scale-[0.98] transition-all group flex items-center justify-between gap-4 border border-amber-300/40 relative overflow-hidden"
+        >
+          <div className="flex items-center gap-3.5 relative z-10 overflow-hidden">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition-transform">
+              <Sparkles size={24} className="text-white" />
+            </div>
+            <div className="overflow-hidden">
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-100 block mb-0.5">
+                {language === 'bn' ? '🕌 আজ পবিত্র জুমার দিন • সাইয়্যিদুল আইয়্যাম' : '🕌 Blessed Friday • Sayyidul Ayyam'}
+              </span>
+              <h3 className="font-black text-base truncate">
+                {language === 'bn' ? 'সূরা আল-কাহাফ ও জুমার সুন্নাতসমূহ' : 'Surah Al-Kahf & Friday Sunnahs'}
+              </h3>
+              <p className="text-xs text-amber-100/90 font-bold">
+                {language === 'bn' ? 'কাহাফ তিলাওয়াত, ৮টি সুন্নাত চেকলিস্ট ও দরূদ পাঠের আমল' : 'Surah Kahf Recitation, 8 Sunnah Checklist & Durood'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 relative z-10">
+            <span className="px-3.5 py-2 rounded-xl bg-white text-amber-900 text-xs font-black shadow-sm group-hover:bg-amber-100 transition-colors flex items-center gap-1">
+              <span>{language === 'bn' ? 'প্রবেশ করুন' : 'Enter Hub'}</span>
+              <ChevronRight size={14} />
+            </span>
           </div>
         </div>
       )}
 
+      {/* 3. Quick Resume Last Read Ayah Card */}
+      {lastRead && (
+        <div 
+          onClick={() => handleSurahClick(lastRead.surahNumber, lastRead.ayahNumber)}
+          className="p-4 rounded-[2rem] bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-xl shadow-emerald-900/15 cursor-pointer active:scale-[0.98] transition-all group flex items-center justify-between gap-4 border border-white/10"
+        >
+          <div className="flex items-center gap-3.5 overflow-hidden">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+              <BookOpen size={22} />
+            </div>
+            <div className="overflow-hidden">
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-200 block mb-0.5">
+                {language === 'bn' ? 'সর্বশেষ পঠিত • পড়া চালিয়ে যান' : 'Continue Reading'}
+              </span>
+              <h3 className="font-black text-base truncate">{lastRead.surahName}</h3>
+              <p className="text-xs text-white/80 font-semibold">
+                {language === 'bn' ? `আয়াত #${lastRead.ayahNumber}` : `Ayah #${lastRead.ayahNumber}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="px-3.5 py-2 rounded-xl bg-white text-emerald-800 text-xs font-black shadow-sm group-hover:bg-amber-300 transition-colors flex items-center gap-1">
+              <span>{language === 'bn' ? 'পড়ুন' : 'Resume'}</span>
+              <ChevronRight size={14} />
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Daily Inspiring Ayah of the Day Widget with Social Card generator */}
+      <DailyAyahCard 
+        onReadSurah={(num) => handleSurahClick(num)} 
+        onOpenSocialCard={handleOpenSocialCard}
+      />
+
       <div className="grid grid-cols-2 gap-4">
         {[
+          { id: 'jummah', icon: Calendar, label: language === 'bn' ? 'জুমার আমল' : 'Jummah Hub', color: 'amber' },
+          { id: 'duas', icon: ShieldCheck, label: language === 'bn' ? 'দৈনন্দিন দু\'আ' : 'Hisnul Muslim', color: 'teal' },
+          { id: 'khatam', icon: Target, label: language === 'bn' ? 'খতম প্ল্যানার' : 'Khatam Tracker', color: 'emerald' },
+          { id: 'names99', icon: Sparkles, label: language === 'bn' ? '৯৯ নাম' : '99 Names', color: 'yellow' },
+          { id: 'zakat', icon: Calculator, label: language === 'bn' ? 'যাকাত ক্যালকুলেটর' : 'Zakat Calculator', color: 'emerald' },
+          { id: 'ramadan', icon: Moon, label: language === 'bn' ? 'মাহে রমাদান' : 'Ramadan Special', color: 'amber' },
           { id: 'audio', icon: Headphones, label: t.audioQuran, color: 'emerald' },
           { id: 'hadis', icon: Quote, label: t.hadis, color: 'orange' },
           { id: 'tasbih', icon: Activity, label: t.tasbih, color: 'purple' },
           { id: 'games', icon: Brain, label: t.games, color: 'indigo' },
           { id: 'developer', icon: Code, label: t.developerInfo, color: 'blue' },
           { id: 'donation', icon: Heart, label: t.donation, color: 'pink' }
-        ].map((item) => (
-          <div 
-            key={item.id}
-            onClick={() => setActiveTab(item.id)} 
-            className="bg-white dark:bg-slate-800 p-1 rounded-[2.5rem] shadow-lg shadow-slate-200/50 dark:shadow-slate-900/50 border border-white/20 dark:border-slate-700/30 cursor-pointer active:scale-95 transition-all group"
-          >
-            <div className={`h-full p-5 rounded-[2.2rem] bg-slate-50 dark:bg-slate-900/50 flex flex-col items-center justify-center gap-3 group-hover:bg-${item.color}-50 dark:group-hover:bg-${item.color}-900/10 transition-colors`}>
-              <div className={`p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm text-${item.color}-500 group-hover:scale-110 transition-transform duration-300`}>
-                <item.icon size={24} />
+        ].map((item) => {
+          const isRamadanHighlight = item.id === 'ramadan' && isCurrentlyRamadan;
+          return (
+            <motion.div 
+              key={item.id}
+              onClick={() => setActiveTab(item.id)} 
+              animate={isRamadanHighlight ? {
+                scale: [1, 1.03, 1],
+                boxShadow: [
+                  '0 10px 25px -5px rgba(245, 158, 11, 0.25), 0 8px 10px -6px rgba(245, 158, 11, 0.2)',
+                  '0 18px 32px -5px rgba(245, 158, 11, 0.5), 0 12px 16px -6px rgba(245, 158, 11, 0.35)',
+                  '0 10px 25px -5px rgba(245, 158, 11, 0.25), 0 8px 10px -6px rgba(245, 158, 11, 0.2)'
+                ]
+              } : {}}
+              transition={isRamadanHighlight ? { duration: 2.2, repeat: Infinity, ease: 'easeInOut' } : {}}
+              className={`p-1 rounded-[2.5rem] shadow-lg cursor-pointer active:scale-95 transition-all group relative ${
+                isRamadanHighlight 
+                  ? 'bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 ring-2 ring-amber-400/80 border-2 border-amber-300' 
+                  : 'bg-white dark:bg-slate-800 shadow-slate-200/50 dark:shadow-slate-900/50 border border-white/20 dark:border-slate-700/30'
+              }`}
+            >
+              {isRamadanHighlight && (
+                <div className="absolute -top-2.5 right-2 z-20 flex items-center gap-1 bg-gradient-to-r from-amber-500 to-yellow-500 text-white px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider shadow-md animate-pulse">
+                  <Sparkles size={10} />
+                  <span>{language === 'bn' ? 'রমাদান স্পেশাল' : 'Ramadan Special'}</span>
+                </div>
+              )}
+              <div className={`h-full p-5 rounded-[2.2rem] flex flex-col items-center justify-center gap-3 transition-colors ${
+                isRamadanHighlight
+                  ? 'bg-amber-50 dark:bg-slate-900/90'
+                  : `bg-slate-50 dark:bg-slate-900/50 group-hover:bg-${item.color}-50 dark:group-hover:bg-${item.color}-900/10`
+              }`}>
+                <div className={`p-4 rounded-2xl shadow-sm group-hover:scale-110 transition-transform duration-300 ${
+                  isRamadanHighlight
+                    ? 'bg-amber-500 text-white shadow-amber-500/30'
+                    : `bg-white dark:bg-slate-800 text-${item.color}-500`
+                }`}>
+                  <item.icon size={24} className={isRamadanHighlight ? 'fill-yellow-200 drop-shadow-xs' : ''} />
+                </div>
+                <span className={`font-black text-xs uppercase tracking-widest text-center transition-colors ${
+                  isRamadanHighlight
+                    ? 'text-amber-700 dark:text-amber-400 font-black'
+                    : `text-slate-600 dark:text-slate-300 group-hover:text-${item.color}-600 dark:group-hover:text-${item.color}-400`
+                }`}>
+                  {item.label}
+                </span>
               </div>
-              <span className={`font-black text-xs uppercase tracking-widest text-center text-slate-600 dark:text-slate-300 group-hover:text-${item.color}-600 dark:group-hover:text-${item.color}-400 transition-colors`}>{item.label}</span>
-            </div>
-          </div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {prayerData && (
@@ -487,21 +835,6 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         </section>
-      )}
-
-      {lastRead && (
-        <div onClick={() => handleSurahClick(lastRead.surahNumber)} className="bg-slate-900 dark:bg-slate-800 p-1 rounded-[2.5rem] shadow-xl shadow-slate-900/20 cursor-pointer active:scale-95 transition-all duration-300 group">
-          <div className="bg-slate-800 dark:bg-slate-900/50 p-6 rounded-[2.2rem] relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform duration-700"><BookOpen size={100} className="text-white" /></div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-white/80 backdrop-blur-md border border-white/5">{t.lastRead}</span>
-              </div>
-              <h2 className="text-2xl font-black mb-1 tracking-tight text-white">{lastRead.surahName}</h2>
-              <p className="text-slate-400 text-sm font-medium">Ayah: {lastRead.ayahNumber}</p>
-            </div>
-          </div>
-        </div>
       )}
     </motion.div>
   );
@@ -652,30 +985,43 @@ const AppContent: React.FC = () => {
         <div>
           <h2 className="text-3xl font-black tracking-tight">{t.prayerTimes}</h2>
           <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mt-1">
-             <MapPin size={12} className="text-emerald-500" />
+             <MapPin size={12} style={{ color: activeThemeConfig.primaryColor }} />
              <span className="text-[10px] font-bold uppercase tracking-wider">{locationName || t.currentLocation}</span>
           </div>
         </div>
-        <div className="p-4 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-2xl"><Clock size={28} /></div>
+        <div 
+          className="p-4 rounded-2xl shadow-sm"
+          style={{ backgroundColor: `${activeThemeConfig.primaryColor}15`, color: activeThemeConfig.primaryColor }}
+        >
+          <Clock size={28} />
+        </div>
       </div>
 
       {prayerData ? (
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-800 p-1 rounded-[2.5rem] shadow-xl shadow-emerald-900/10 dark:shadow-emerald-900/20 border border-white/20 dark:border-slate-700/30 relative overflow-hidden">
-             <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/30 dark:to-teal-900/30 p-8 rounded-[2.2rem] relative overflow-hidden">
+          <div className="bg-white dark:bg-slate-800 p-1 rounded-[2.5rem] shadow-xl shadow-slate-900/5 dark:shadow-black/30 border border-white/20 dark:border-slate-700/30 relative overflow-hidden">
+             <div className="bg-gradient-to-br from-slate-50 via-white to-amber-50/20 dark:from-slate-900 dark:via-slate-900/80 dark:to-amber-950/20 p-8 rounded-[2.2rem] relative overflow-hidden">
                <div className="relative z-10">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400 mb-2">{prayerData.hijri.month.en}</p>
+                  <p 
+                    className="text-[10px] font-black uppercase tracking-[0.2em] mb-2"
+                    style={{ color: activeThemeConfig.primaryColor }}
+                  >
+                    {prayerData.hijri.month.en}
+                  </p>
                   <h3 className="text-4xl font-black mb-1 text-slate-800 dark:text-slate-100">{prayerData.hijri.day} {prayerData.hijri.month.ar} {prayerData.hijri.year}</h3>
                   <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">{prayerData.hijri.date}</p>
                   
                   {ramadanDays !== null && ramadanDays > 0 && (
                     <div className="mt-6 inline-flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 dark:border-slate-700/30 shadow-sm">
-                      <Moon size={16} className="text-emerald-600 dark:text-emerald-400" />
+                      <Moon size={16} style={{ color: activeThemeConfig.primaryColor }} />
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{ramadanDays} {t.daysLeft} to Ramadan</span>
                     </div>
                   )}
                </div>
-               <Calendar className="absolute top-1/2 -right-4 -translate-y-1/2 text-emerald-500/10 dark:text-emerald-400/5 w-40 h-40 pointer-events-none" />
+               <Calendar 
+                 className="absolute top-1/2 -right-4 -translate-y-1/2 w-40 h-40 pointer-events-none opacity-5 dark:opacity-10" 
+                 style={{ color: activeThemeConfig.primaryColor }}
+               />
              </div>
           </div>
 
@@ -693,16 +1039,31 @@ const AppContent: React.FC = () => {
                   className="p-6 flex justify-between items-center cursor-pointer active:bg-slate-50 dark:active:bg-slate-700/50"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors ${expandedPrayer === p.key ? 'bg-emerald-600 text-white' : 'bg-slate-50 dark:bg-slate-900 text-emerald-600'}`}>
+                    <div 
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center transition-colors shadow-sm"
+                      style={expandedPrayer === p.key ? { backgroundColor: activeThemeConfig.primaryColor, color: '#ffffff' } : { backgroundColor: `${activeThemeConfig.primaryColor}15`, color: activeThemeConfig.primaryColor }}
+                    >
                       <p.icon size={22} />
                     </div>
                     <div>
                       <span className="font-black tracking-tight text-slate-800 dark:text-slate-100 block">{p.label}</span>
-                      {expandedPrayer === p.key && <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Tap to collapse</span>}
+                      {expandedPrayer === p.key && (
+                        <span 
+                          className="text-[10px] font-bold uppercase tracking-wider"
+                          style={{ color: activeThemeConfig.primaryColor }}
+                        >
+                          Tap to collapse
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xl font-black text-emerald-700 dark:text-emerald-400">{p.time}</span>
+                    <span 
+                      className="text-xl font-black"
+                      style={{ color: activeThemeConfig.primaryColor }}
+                    >
+                      {p.time}
+                    </span>
                     <ChevronDown size={16} className={`text-slate-400 transition-transform duration-300 ${expandedPrayer === p.key ? 'rotate-180' : ''}`} />
                   </div>
                 </div>
@@ -760,64 +1121,212 @@ const AppContent: React.FC = () => {
             ))}
           </div>
 
-          {/* Ramadan Section */}
-          <div className="pt-6">
-            <div className="flex items-center justify-between mb-4">
-               <h3 className="text-xl font-black tracking-tight">Ramadan {showRamadanHistory ? 'History' : 'Calendar'}</h3>
-               <button 
-                 onClick={() => setShowRamadanHistory(!showRamadanHistory)}
-                 className="px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest"
-               >
-                 {showRamadanHistory ? 'View Calendar' : 'View History'}
-               </button>
-            </div>
+          {/* Ramadan Conditional Section (Only shown during Ramadan; otherwise shows Masnoon Duas & Daily Dhikr) */}
+          {(() => {
+            const isCurrentlyRamadan = Boolean(
+              prayerData?.hijri?.month?.number === 9 || 
+              prayerData?.hijri?.month?.en?.toLowerCase().includes('ramadan') ||
+              prayerData?.hijri?.month?.ar?.includes('رمضان')
+            );
 
-            {showRamadanHistory ? (
-              <div className="space-y-3">
-                {ramadanHistory.map((h, i) => (
-                  <div key={i} className="bg-white dark:bg-slate-800 p-5 rounded-[1.5rem] flex items-center justify-between border border-slate-100 dark:border-slate-700/50">
+            if (isCurrentlyRamadan || showRamadanCalendarPreview) {
+              return (
+                <div className="pt-6 space-y-4">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Hijri {h.hijri}</p>
-                      <h4 className="font-black text-lg text-slate-800 dark:text-slate-100">{h.year}</h4>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                        <h3 className="text-xl font-black tracking-tight">
+                          {language === 'bn' ? 'মাহে রমাদান ক্যালেন্ডার' : 'Ramadan Calendar'}
+                        </h3>
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        {isCurrentlyRamadan 
+                          ? (language === 'bn' ? 'আজকের সেহরি, ইফতার ও সম্পূর্ণ রমাদান সময়সূচি' : 'Sehri, Iftar & 30 Days Schedule')
+                          : (language === 'bn' ? 'রমাদানের আগাম ক্যালেন্ডার প্রিভিউ' : 'Upcoming Ramadan Calendar Preview')}
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Started On</p>
-                      <p className="font-bold text-emerald-600 dark:text-emerald-400">{h.date}</p>
+
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setShowRamadanHistory(!showRamadanHistory)}
+                        className="px-3.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-xl text-[10px] font-black uppercase tracking-wider border border-emerald-200/50 dark:border-emerald-800/40"
+                      >
+                        {showRamadanHistory ? (language === 'bn' ? 'ক্যালেন্ডার' : 'Calendar') : (language === 'bn' ? 'পূর্বের ইতিহাস' : 'History')}
+                      </button>
+
+                      {!isCurrentlyRamadan && (
+                        <button 
+                          onClick={() => setShowRamadanCalendarPreview(false)}
+                          className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                        >
+                          {language === 'bn' ? 'বন্ধ করুন' : 'Close'}
+                        </button>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-slate-800 rounded-[2rem] overflow-hidden border border-slate-100 dark:border-slate-700/50">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
-                      <tr>
-                        <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Day</th>
-                        <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Date</th>
-                        <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Sehri</th>
-                        <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Iftar</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                      {ramadanCalendar.length > 0 ? ramadanCalendar.map((day, i) => (
-                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors">
-                          <td className="p-4 font-black text-sm text-emerald-600">{i + 1}</td>
-                          <td className="p-4 text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">{day.date.gregorian.day} {day.date.gregorian.month.en}</td>
-                          <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-100">{day.timings.Fajr.split(' ')[0]}</td>
-                          <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-100">{day.timings.Maghrib.split(' ')[0]}</td>
-                        </tr>
-                      )) : (
-                        <tr>
-                          <td colSpan={4} className="p-8 text-center text-slate-400 text-xs font-bold">Loading calendar...</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+
+                  {showRamadanHistory ? (
+                    <div className="space-y-3">
+                      {ramadanHistory.map((h, i) => (
+                        <div key={i} className="bg-white dark:bg-slate-800 p-5 rounded-[1.5rem] flex items-center justify-between border border-slate-100 dark:border-slate-700/50">
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Hijri {h.hijri}</p>
+                            <h4 className="font-black text-lg text-slate-800 dark:text-slate-100">{h.year}</h4>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Started On</p>
+                            <p className="font-bold text-emerald-600 dark:text-emerald-400">{h.date}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-slate-800 rounded-[2rem] overflow-hidden border border-slate-100 dark:border-slate-700/50">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                            <tr>
+                              <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">{language === 'bn' ? 'রোজা' : 'Day'}</th>
+                              <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">{language === 'bn' ? 'তারিখ' : 'Date'}</th>
+                              <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">{language === 'bn' ? 'সেহরি শেষ' : 'Sehri'}</th>
+                              <th className="p-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">{language === 'bn' ? 'ইফতার' : 'Iftar'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                            {ramadanCalendar.length > 0 ? ramadanCalendar.map((day, i) => (
+                              <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors">
+                                <td className="p-4 font-black text-sm text-emerald-600">{i + 1}</td>
+                                <td className="p-4 text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap">{day.date.gregorian.day} {day.date.gregorian.month.en}</td>
+                                <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-100">{day.timings.Fajr.split(' ')[0]}</td>
+                                <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-100">{day.timings.Maghrib.split(' ')[0]}</td>
+                              </tr>
+                            )) : (
+                              <tr>
+                                <td colSpan={4} className="p-8 text-center text-slate-400 text-xs font-bold">Loading calendar...</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // Otherwise (When NOT Ramadan): Show Daily Essential Post-Prayer Masnoon Duas & Dhikr + Ramadan Countdown
+            return (
+              <div className="pt-6 space-y-4">
+                {/* 1. Essential Post-Prayer Duas & Hadith Encouragement Card */}
+                <div className="bg-gradient-to-br from-white via-slate-50 to-emerald-50/40 dark:from-slate-800 dark:via-slate-800/90 dark:to-emerald-950/20 p-6 sm:p-7 rounded-[2.5rem] border border-slate-100 dark:border-slate-700/70 shadow-sm space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                        <Sparkles size={20} />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 block">
+                          {language === 'bn' ? 'প্রতি সালাতের পর সুন্নাত আমল' : 'Sunnah After Prayer'}
+                        </span>
+                        <h3 className="font-black text-base text-slate-800 dark:text-slate-100">
+                          {language === 'bn' ? 'সালাত পরবর্তী গুরুত্বপূর্ণ মাসনূন দু\'আ' : 'Essential Post-Prayer Duas'}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+                      সহীহ হাদীস
+                    </span>
+                  </div>
+
+                  {/* Dua 1: Astaghfirullah & Allahumma Antas Salam */}
+                  <div className="p-4 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">
+                        {language === 'bn' ? '১. সালাম ফেরানোর পর (৩ বার পাঠ্য)' : '1. After Salam (3 Times)'}
+                      </span>
+                      <span className="text-[9px] font-bold text-slate-400">সহীহ মুসলিম ৫৯১</span>
+                    </div>
+                    <p className="font-arabic text-lg sm:text-xl text-center leading-loose text-slate-900 dark:text-slate-100 font-bold">
+                      أَسْتَغْفِرُ اللهَ، اللَّهُمَّ أَنْتَ السَّلَامُ وَمِنْكَ السَّلَامُ، تَبَارَكْتَ يَا ذَا الْجَلَالِ وَالإِكْرَامِ
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium text-center">
+                      {language === 'bn' 
+                        ? '«আমি আল্লাহর ক্ষমা প্রার্থনা করছি (৩ বার)। হে আল্লাহ! আপনিই শান্তিময়, আপনার থেকেই শান্তি বর্ষিত হয়। বরকতময় আপনি, হে মহিমাময় ও মর্যাদাবান!»' 
+                        : '«I ask Allah for forgiveness. O Allah, You are Peace and from You comes peace. Blessed are You, O Owner of majesty and honor.»'}
+                    </p>
+                  </div>
+
+                  {/* Dua 2: Ayatul Kursi Virtue */}
+                  <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/30 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-amber-800 dark:text-amber-400">
+                        {language === 'bn' ? '২. প্রতি ফরজ সালাতের পর আয়াতুল কুরসী' : '2. Ayatul Kursi after Fard Prayer'}
+                      </span>
+                      <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">সুনানে নাসাঈ ৯৯২৮</span>
+                    </div>
+                    <p className="text-xs text-slate-700 dark:text-slate-200 font-bold leading-relaxed">
+                      {language === 'bn'
+                        ? 'রাসুলুল্লাহ (ﷺ) ইরশাদ করেছেন: «যে ব্যক্তি প্রতি ফরজ সালাতের পর আয়াতুল কুরসী পাঠ করবে, তার জান্নাতে প্রবেশ করতে মৃত্যু ব্যতীত আর কোনো বাধা থাকবে না।»'
+                        : 'The Prophet (ﷺ) said: «Whoever recites Ayatul Kursi immediately after each obligatory prayer, there will be nothing between him and entering Paradise except death.»'}
+                    </p>
+                  </div>
+
+                  {/* Dua 3: Tasbih Fatima */}
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-3 bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-base font-black text-emerald-600 block">৩৩ বার</span>
+                      <span className="font-arabic text-sm font-bold text-slate-800 dark:text-slate-200 block">سُبْحَانَ اللهِ</span>
+                      <span className="text-[10px] text-slate-400 font-bold">সুবহানাল্লাহ</span>
+                    </div>
+                    <div className="p-3 bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-base font-black text-emerald-600 block">৩৩ বার</span>
+                      <span className="font-arabic text-sm font-bold text-slate-800 dark:text-slate-200 block">الحَمْدُ لِلَّهِ</span>
+                      <span className="text-[10px] text-slate-400 font-bold">আলহামদুলিল্লাহ</span>
+                    </div>
+                    <div className="p-3 bg-white dark:bg-slate-900/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-base font-black text-emerald-600 block">৩৪ বার</span>
+                      <span className="font-arabic text-sm font-bold text-slate-800 dark:text-slate-200 block">اللَّهُ أَكْبَرُ</span>
+                      <span className="text-[10px] text-slate-400 font-bold">আল্লাহু আকবার</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Upcoming Ramadan Countdown & Dua Card with Preview Toggle */}
+                <div className="p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-900/50 border border-slate-200/70 dark:border-slate-700/70 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                      <Moon size={22} />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        <span>{language === 'bn' ? 'মাহে রমাদানের আগাম প্রস্তুতি' : 'Upcoming Ramadan Preparation'}</span>
+                        {ramadanDays !== null && ramadanDays > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white">
+                            {ramadanDays} {language === 'bn' ? 'দিন বাকি' : 'days left'}
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                        {language === 'bn'
+                          ? '«হে আল্লাহ! আমাদের রজব ও শাবানে বরকত দিন এবং রমাদান পর্যন্ত পৌঁছিয়ে দিন»'
+                          : '«O Allah! Bless us in Rajab and Sha\'ban, and let us reach Ramadan»'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setShowRamadanCalendarPreview(true)}
+                    className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-black shadow-xs hover:border-emerald-500 hover:text-emerald-600 active:scale-95 transition-all shrink-0 flex items-center gap-1.5"
+                  >
+                    <span>{language === 'bn' ? 'ক্যালেন্ডার প্রিভিউ দেখুন' : 'View Calendar Preview'}</span>
+                    <ChevronRight size={14} />
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -993,26 +1502,111 @@ const AppContent: React.FC = () => {
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
         className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-900 fixed inset-0 z-50 overflow-y-auto"
       >
-        <header className="sticky top-0 z-40 pt-safe bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl border-b border-slate-100 dark:border-slate-700">
-          <div className="px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button onClick={() => setSelectedSurah(null)} className="p-3 bg-slate-100 dark:bg-slate-700 rounded-2xl active:scale-90 transition-transform"><ArrowLeft size={20} /></button>
-              <div>
-                <h2 className="text-lg font-black tracking-tight leading-tight">{selectedSurah.englishName}</h2>
-                <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{selectedSurah.revelationType} • {selectedSurah.numberOfAyahs} {t.ayahs}</p>
+        <header className="sticky top-0 z-40 pt-safe bg-white/90 dark:bg-slate-800/90 backdrop-blur-xl border-b border-slate-100 dark:border-slate-700 shadow-sm">
+          <div className="px-4 py-3 space-y-2">
+            {/* Top row */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setSelectedSurah(null)} className="p-2.5 bg-slate-100 dark:bg-slate-700 rounded-2xl active:scale-90 transition-transform">
+                  <ArrowLeft size={18} />
+                </button>
+                <div>
+                  <h2 className="text-base sm:text-lg font-black tracking-tight leading-tight">{selectedSurah.englishName}</h2>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{selectedSurah.revelationType} • {selectedSurah.numberOfAyahs} {t.ayahs}</p>
+                </div>
+              </div>
+
+              {/* Header Right: Quick Font Scaling & Jump to Ayah */}
+              <div className="flex items-center gap-1.5">
+                {/* Font Size A- and A+ */}
+                <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-2xl p-1 gap-1">
+                  <button
+                    onClick={() => setArabicFontSize(Math.max(18, arabicFontSize - 2))}
+                    className="w-7 h-7 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-black shadow-sm active:scale-90 flex items-center justify-center"
+                    title="Smaller Arabic font"
+                  >
+                    A-
+                  </button>
+                  <span className="text-[10px] font-black px-1 text-slate-500 dark:text-slate-400">
+                    {arabicFontSize}
+                  </span>
+                  <button
+                    onClick={() => setArabicFontSize(Math.min(48, arabicFontSize + 2))}
+                    className="w-7 h-7 rounded-xl bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-black shadow-sm active:scale-90 flex items-center justify-center"
+                    title="Larger Arabic font"
+                  >
+                    A+
+                  </button>
+                </div>
+
+                {/* Jump to Ayah Dropdown */}
+                <select
+                  onChange={(e) => {
+                    const ayahNum = parseInt(e.target.value);
+                    if (ayahNum) {
+                      const el = document.getElementById(`ayah-${ayahNum}`);
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black rounded-2xl px-2 py-1.5 outline-none cursor-pointer border border-transparent"
+                  defaultValue=""
+                >
+                  <option value="" disabled>{language === 'bn' ? 'আয়াত নং' : 'Ayah'}</option>
+                  {selectedSurah.ayahs.map(a => (
+                    <option key={a.numberInSurah} value={a.numberInSurah}>
+                      {language === 'bn' ? `আয়াত ${a.numberInSurah}` : `Ayah ${a.numberInSurah}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Reading View Mode Switcher Pills */}
+            <div className="flex items-center justify-between gap-1.5 pt-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 shrink-0">
+                {language === 'bn' ? 'পড়ার মোড:' : 'Mode:'}
+              </span>
+
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-1 rounded-2xl">
+                {[
+                  { id: 'all' as ReadingViewMode, labelBn: '📖 সবকিছু', labelEn: 'All' },
+                  { id: 'arabic-only' as ReadingViewMode, labelBn: '📜 শুধু আরবী', labelEn: 'Arabic Only' },
+                  { id: 'translation-only' as ReadingViewMode, labelBn: '📝 অর্থসহ', labelEn: 'Translation' }
+                ].map((mode) => {
+                  const isCurrent = readingViewMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => setReadingViewMode(mode.id)}
+                      className={`px-3 py-1 rounded-xl text-xs font-black transition-all ${
+                        isCurrent
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
+                      }`}
+                      style={isCurrent ? { color: activeThemeConfig.primaryColor } : {}}
+                    >
+                      {language === 'bn' ? mode.labelBn : mode.labelEn}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
         </header>
+
         <div className="px-4 py-8 max-w-2xl mx-auto w-full space-y-8 pb-40">
-          <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-[3rem] p-10 text-center shadow-2xl shadow-emerald-900/30 relative overflow-hidden">
+          <div className={`bg-gradient-to-br ${activeThemeConfig.gradientHero} rounded-[3rem] p-10 text-center shadow-2xl relative overflow-hidden transition-all duration-500`}>
              <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
                 <svg viewBox="0 0 100 100" className="w-full h-full"><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" strokeWidth="0.5"/></pattern><rect width="100" height="100" fill="url(#grid)" /></svg>
              </div>
              <p className="font-arabic text-4xl text-white mb-6 drop-shadow-md">{UI_TRANSLATIONS.ar.bismillah}</p>
-             {language !== 'ar' && <p className="text-emerald-50 text-xs font-bold italic opacity-90 max-w-[85%] mx-auto leading-relaxed">"{t.bismillah}"</p>}
+             {language !== 'ar' && <p className="text-white/90 text-xs font-bold italic opacity-95 max-w-[85%] mx-auto leading-relaxed">"{t.bismillah}"</p>}
              {selectedSurah.ayahs[0]?.audio && (
-                <button onClick={() => setPlayingAudio({url: selectedSurah.ayahs[0].audio!, title: `${selectedSurah.englishName} : 1`})} className="mt-8 bg-white text-emerald-700 px-8 py-3 rounded-[1.5rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center gap-3 mx-auto transition-all hover:shadow-2xl hover:bg-emerald-50">
+                <button 
+                  onClick={() => setPlayingAudio({url: selectedSurah.ayahs[0].audio!, title: `${selectedSurah.englishName} : 1`})} 
+                  className="mt-8 bg-white px-8 py-3 rounded-[1.5rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 flex items-center gap-3 mx-auto transition-all hover:shadow-2xl hover:scale-105"
+                  style={{ color: activeThemeConfig.primaryColor }}
+                >
                   <Play size={18} fill="currentColor" />
                   {t.playRecitation}
                 </button>
@@ -1024,7 +1618,9 @@ const AppContent: React.FC = () => {
                 key={ayah.number} 
                 ayah={ayah} 
                 surah={selectedSurah} 
+                readingViewMode={readingViewMode}
                 onPlayAudio={(url, title) => setPlayingAudio({url, title})}
+                onOpenSocialCard={handleOpenSocialCard}
               />
             ))}
           </div>
@@ -1068,12 +1664,102 @@ const AppContent: React.FC = () => {
         {/* Offline Manager Section */}
         <OfflineManager />
 
+        {/* Islamic UI Theme Color Dots (Compact & Zero Wasted Space) */}
+        <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0"
+                style={{ backgroundColor: activeThemeConfig.primaryColor }}
+              >
+                <Palette size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {t.islamicThemeTitle}
+                </h3>
+                <p className="text-xs font-black text-slate-800 dark:text-slate-100">
+                  {activeThemeConfig.nameBn} <span className="font-arabic text-amber-600 dark:text-amber-400 font-bold ml-1">({activeThemeConfig.nameAr})</span>
+                </p>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  {activeThemeConfig.taglineBn}
+                </p>
+              </div>
+            </div>
+
+            {/* The 5 Sleek Circular Color Dots */}
+            <div className="flex items-center justify-between sm:justify-end gap-2 bg-slate-50 dark:bg-slate-900/60 p-2 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+              {THEME_LIST.map((th) => {
+                const isSelected = islamicTheme === th.id;
+                return (
+                  <button
+                    key={th.id}
+                    onClick={() => {
+                      setIslamicTheme(th.id);
+                      if ('vibrate' in navigator) navigator.vibrate(25);
+                    }}
+                    title={`${th.nameBn} • ${th.taglineBn}`}
+                    aria-label={th.nameBn}
+                    className={`relative w-8 h-8 rounded-full transition-all duration-200 active:scale-90 flex items-center justify-center ${
+                      isSelected 
+                        ? 'ring-2 ring-offset-2 ring-slate-800 dark:ring-offset-slate-900 scale-110 shadow-md' 
+                        : 'hover:scale-110 opacity-70 hover:opacity-100'
+                    }`}
+                    style={{
+                      backgroundColor: th.primaryColor
+                    }}
+                  >
+                    {isSelected && (
+                      <span className="w-2 h-2 rounded-full bg-white shadow-xs" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
         <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
           <div className="flex items-center gap-3 mb-6"><LayoutGrid className="text-emerald-600" size={20} /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">{t.appearance}</h3></div>
           <div className="flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-3xl">
             <div className="flex items-center gap-3">{theme === 'dark' ? <Moon size={20} className="text-emerald-400" /> : <Sun size={20} className="text-orange-400" />}<span className="text-sm font-black tracking-tight">{t.theme}</span></div>
             <button onClick={() => setTheme(theme === ThemeMode.LIGHT ? ThemeMode.DARK : ThemeMode.LIGHT)} className={`w-14 h-8 rounded-full relative p-1 transition-colors duration-500 ${theme === ThemeMode.DARK ? 'bg-emerald-600' : 'bg-slate-300'}`}><div className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-500 ${theme === ThemeMode.DARK ? 'translate-x-6' : 'translate-x-0'}`} /></button>
           </div>
+        </section>
+
+        {/* Ramadan Occasion Highlight Preference (Auto + Live Preview Toggle) */}
+        <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 sm:p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/60 rounded-xl flex items-center justify-center text-amber-600">
+                <Moon size={20} className="fill-amber-500/20" />
+              </div>
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {language === 'bn' ? 'মাহে রমাদান স্পেশাল হাইলাইট' : 'Ramadan Special Highlight'}
+                </h3>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  {isCurrentlyRamadan 
+                    ? (language === 'bn' ? 'রমাদান স্পেশাল অ্যানিমেশন চলমান' : 'Ramadan Live Animation Active')
+                    : (language === 'bn' ? 'রমাদান মাস এলে স্বয়ংক্রিয়ভাবে সক্রিয় হবে' : 'Automatically highlights in Ramadan')}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={toggleRamadanDemoActive}
+              className={`w-14 h-8 rounded-full relative p-1 transition-colors duration-500 ${isRamadanDemoActive ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+              title={language === 'bn' ? 'রমাদান লাইভ অ্যানিমেশন টেস্ট করুন' : 'Test Ramadan Live Animation'}
+            >
+              <div className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-500 ${isRamadanDemoActive ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+            {language === 'bn'
+              ? 'রমাদান মাস শুরু হওয়া মাত্রই হোমস্ক্রিনে এবং প্রেয়ার টাইমে ডেডিকেটেড রমাদান স্পেশাল সেকশনটি ঝলমলে অ্যানিমেশনের মাধ্যমে স্বয়ংক্রিয়ভাবে হাইলাইট হয়ে যাবে।'
+              : 'As soon as Ramadan starts, the app automatically illuminates and continuously animates the Ramadan Special section across the app.'}
+          </p>
         </section>
         <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
           <div className="flex items-center gap-3 mb-8"><Sliders className="text-emerald-600" size={20} /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">{t.fontSize}</h3></div>
@@ -1097,6 +1783,166 @@ const AppContent: React.FC = () => {
           </div>
         </section>
 
+        {/* Cloud Broadcast & Notifications Section */}
+        <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-50 dark:bg-amber-900/30 rounded-xl flex items-center justify-center text-amber-600">
+                <Bell size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {language === 'bn' ? 'বিজ্ঞপ্তি ও ক্লাউড মেসেজ' : 'Broadcasts & Notifications'}
+                </h3>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {language === 'bn' ? 'ফ্রি ক্লাউড ব্যাকএন্ড সার্ভার' : 'Free Cloud Backend'}
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-black rounded-full uppercase tracking-wider flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Firebase Live</span>
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {/* View Notifications Hub */}
+            <button
+              onClick={() => setIsNotificationModalOpen(true)}
+              className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/40 rounded-xl flex items-center justify-center text-amber-600">
+                  <BellRing size={18} />
+                </div>
+                <div className="text-left">
+                  <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span>{language === 'bn' ? 'নোটিফিকেশন ও বার্তা কেন্দ্র' : 'Notification Center'}</span>
+                    {unreadAnnouncementsCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white">
+                        {unreadAnnouncementsCount} {language === 'bn' ? 'নতুন' : 'New'}
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    {language === 'bn' ? 'সকল অকেশন বার্তা ও বিরক্তি-মুক্ত পছন্দ' : 'Occasion messages & quiet settings'}
+                  </p>
+                </div>
+              </div>
+              <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 group-hover:text-amber-500 transition-colors">
+                <ChevronRight size={18} />
+              </div>
+            </button>
+
+            {/* User to Admin Contact & Email Button */}
+            <button
+              onClick={() => setIsContactAdminModalOpen(true)}
+              className="w-full flex items-center justify-between p-5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-500/20 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:border-emerald-500/50"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-emerald-500 text-white rounded-xl flex items-center justify-center shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
+                  <Mail size={18} />
+                </div>
+                <div className="text-left">
+                  <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>{language === 'bn' ? 'অ্যাডমিনকে বার্তা বা মেইল পাঠান' : 'Contact Admin & Feedback'}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500 text-white">
+                      User
+                    </span>
+                  </h4>
+                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    {language === 'bn' ? 'মতামত, দু\'আ বা নোটিফিকেশন পছন্দ নিয়ে বার্তা পাঠান' : 'Send feedback, prayers or quiet mode requests'}
+                  </p>
+                </div>
+              </div>
+              <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-emerald-500 group-hover:translate-x-0.5 transition-transform shadow-sm">
+                <ChevronRight size={18} />
+              </div>
+            </button>
+
+            {/* Admin Broadcast Sender Button */}
+            <button
+              onClick={() => setIsAdminBroadcastModalOpen(true)}
+              className="w-full flex items-center justify-between p-5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent dark:from-amber-950/20 dark:via-transparent border border-amber-500/30 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:border-amber-500/60"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-yellow-600 text-white rounded-xl flex items-center justify-center shadow-md shadow-amber-500/30 group-hover:scale-105 transition-transform">
+                  <Send size={18} />
+                </div>
+                <div className="text-left">
+                  <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>{language === 'bn' ? 'ইউজারদের মেসেজ পাঠান ও ইনবক্স (অ্যাডমিন)' : 'Broadcast & Inbox (Admin)'}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white">
+                      Admin
+                    </span>
+                  </h4>
+                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    {language === 'bn' ? 'ঈদ/রমাদান বার্তা পাঠান এবং ইউজারদের মেসেজ দেখুন' : 'Broadcast to all users & read user inbox'}
+                  </p>
+                </div>
+              </div>
+              <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-amber-500 group-hover:translate-x-0.5 transition-transform shadow-sm">
+                <ChevronRight size={18} />
+              </div>
+            </button>
+          </div>
+        </section>
+
+        {/* App Updates Section */}
+        <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-xl flex items-center justify-center text-emerald-600">
+                <ArrowUpCircle size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {language === 'bn' ? 'অ্যাপ আপডেট' : 'App Updates'}
+                </h3>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {language === 'bn' ? 'বর্তমান সংস্করণ:' : 'Current Version:'} v{CURRENT_APP_VERSION}
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-black rounded-full uppercase tracking-wider">
+              {language === 'bn' ? 'অফিসিয়াল' : 'Official'}
+            </span>
+          </div>
+
+          <button
+            onClick={handleManualUpdateCheck}
+            disabled={isCheckingUpdate}
+            className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl flex items-center justify-center text-emerald-600">
+                <RefreshCw size={18} className={isCheckingUpdate ? 'animate-spin' : ''} />
+              </div>
+              <div className="text-left">
+                <h4 className="font-black text-sm text-slate-800 dark:text-slate-100">
+                  {isCheckingUpdate 
+                    ? (language === 'bn' ? 'আপডেট চেক করা হচ্ছে...' : 'Checking...') 
+                    : (language === 'bn' ? 'আপডেট পরীক্ষা করুন' : 'Check for Updates')}
+                </h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  {language === 'bn' ? 'নতুন সংস্করণ পরীক্ষা করতে ট্যাপ করুন' : 'Tap to check latest release'}
+                </p>
+              </div>
+            </div>
+            <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 group-hover:text-emerald-500 transition-colors">
+              <ChevronRight size={18} />
+            </div>
+          </button>
+
+          {updateStatusText && (
+            <div className="mt-4 p-4 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 text-center animate-fade-in">
+              <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 font-bangla">
+                {updateStatusText}
+              </p>
+            </div>
+          )}
+        </section>
+
         {/* About & Support Links */}
         <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
            <div className="flex items-center gap-3 mb-6">
@@ -1107,6 +1953,29 @@ const AppContent: React.FC = () => {
            </div>
            
            <div className="space-y-3">
+             <button 
+               onClick={() => setIsAdminBroadcastModalOpen(true)} 
+               className="w-full flex items-center justify-between p-5 bg-gradient-to-r from-amber-500/10 via-yellow-500/5 to-transparent rounded-[1.5rem] border border-amber-500/30 group active:scale-[0.98] transition-all hover:border-amber-500"
+             >
+               <div className="flex items-center gap-4">
+                 <div className="w-10 h-10 bg-amber-500 text-white rounded-xl flex items-center justify-center shadow-md shadow-amber-500/20">
+                   <ShieldCheck size={18} />
+                 </div>
+                 <div className="text-left">
+                   <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                     <span>{language === 'bn' ? 'অ্যাডমিন কন্ট্রোল সেন্টার' : 'Admin Control Center'}</span>
+                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white uppercase">PIN</span>
+                   </h4>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                     {language === 'bn' ? 'ব্রডকাস্ট নোটিফিকেশন ও ইউজার ইনবক্স' : 'Broadcast & User Messages'}
+                   </p>
+                 </div>
+               </div>
+               <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-amber-500 shadow-sm group-hover:translate-x-1 transition-transform">
+                 <ChevronRight size={18} />
+               </div>
+             </button>
+
              <button onClick={() => setActiveTab('developer')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800">
                <div className="flex items-center gap-4">
                  <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/40 rounded-xl flex items-center justify-center text-blue-600">
@@ -1174,23 +2043,48 @@ const AppContent: React.FC = () => {
             </span>
           </div>
 
-          <p className="text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-xs mx-auto">
-            Passionate about building meaningful applications that serve the community. Dedicated to creating seamless and beautiful user experiences.
+          <p className="text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-sm mx-auto text-sm">
+            {language === 'bn' 
+              ? 'নিবেদিতপ্রাণ সফটওয়্যার ইঞ্জিনিয়ার ও ডেভেলপার, যিনি উম্মাহর সেবায় উন্নত প্রযুক্তির ইসলামিক অ্যাপস তৈরি করে থাকেন।'
+              : 'Passionate software engineer and creator dedicated to building meaningful, high-performance Islamic applications that serve the Ummah with seamless digital experiences, prayer utilities, and Quranic tools.'}
           </p>
 
-          <div className="grid grid-cols-1 w-full gap-3 pt-4">
+          <div className="w-full bg-slate-50 dark:bg-slate-900/50 p-5 rounded-2xl text-left space-y-3 border border-slate-100 dark:border-slate-700/60">
+            <h4 className="text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+              {language === 'bn' ? 'ডেভেলপার প্রোফাইল ও দক্ষতা' : 'Developer Profile & Expertise'}
+            </h4>
+            <div className="grid grid-cols-2 gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2">✨ <span>{language === 'bn' ? 'ফুল-স্ট্যাক ডেভেলপমেন্ট' : 'Full-Stack Development'}</span></div>
+              <div className="flex items-center gap-2">🌙 <span>{language === 'bn' ? 'ইসলামিক টেক সলিউশন' : 'Islamic Tech Solutions'}</span></div>
+              <div className="flex items-center gap-2">⚡ <span>{language === 'bn' ? 'রিয়্যাক্ট ও ভিাইট আর্কিটেকচার' : 'React & Vite Architecture'}</span></div>
+              <div className="flex items-center gap-2">🔒 <span>{language === 'bn' ? 'নিরাপদ ক্লাউড ইন্টিগ্রেশন' : 'Secure Cloud Integration'}</span></div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 w-full gap-3 pt-2">
             <a href="mailto:shahin.prpl@gmail.com" className="flex items-center justify-center gap-3 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 transition-all group">
               <div className="p-2 bg-white dark:bg-slate-800 rounded-full shadow-sm group-hover:scale-110 transition-transform">
                 <Mail size={18} className="text-blue-600" />
               </div>
-              <span className="font-bold text-slate-700 dark:text-slate-300">shahin.prpl@gmail.com</span>
+              <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">shahin.prpl@gmail.com</span>
             </a>
+          </div>
+
+          {/* Cross link to Support & Donation */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 w-full text-center">
+            <button 
+              onClick={() => setActiveTab('donation')}
+              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1.5 py-2"
+            >
+              <span>{language === 'bn' ? '❤️ অ্যাপটি তৈরিতে সহযোগিতায় অংশ নিন (সাপোর্ট অ্যান্ড ডোনেশন পেজ)' : '❤️ Support Us in Building the App (Support & Donation Page)'}</span>
+              <ChevronRight size={14} />
+            </button>
           </div>
         </div>
       </div>
       
       <div className="text-center">
-        <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em] opacity-50">Version 1.0.0</p>
+        <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em] opacity-50">Version {CURRENT_APP_VERSION}</p>
       </div>
     </motion.div>
   );
@@ -1210,22 +2104,71 @@ const AppContent: React.FC = () => {
         <h2 className="text-2xl font-black tracking-tight">{t.donation}</h2>
       </div>
 
-      <div className="bg-gradient-to-br from-pink-500 to-rose-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-pink-500/30 relative overflow-hidden mb-8">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+      {/* Interactive Glowing Banner */}
+      <motion.div 
+        animate={{
+          boxShadow: [
+            '0 15px 30px -5px rgba(244, 63, 94, 0.35), 0 10px 10px -5px rgba(244, 63, 94, 0.2)',
+            '0 25px 50px -12px rgba(244, 63, 94, 0.6), 0 15px 20px -5px rgba(244, 63, 94, 0.3)',
+            '0 15px 30px -5px rgba(244, 63, 94, 0.35), 0 10px 10px -5px rgba(244, 63, 94, 0.2)'
+          ]
+        }}
+        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        className="bg-gradient-to-br from-pink-500 via-rose-600 to-pink-700 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden mb-6 border border-pink-300/40"
+      >
+        <motion.div 
+          animate={{ x: ['-100%', '200%'] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none"
+        />
         <div className="relative z-10 text-center">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-inner mx-auto mb-4">
-            <Heart size={32} fill="currentColor" className="text-white" />
-          </div>
+          <motion.div 
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md shadow-inner mx-auto mb-4 border border-white/30"
+          >
+            <Heart size={32} fill="currentColor" className="text-white drop-shadow-md" />
+          </motion.div>
           <h3 className="text-xl font-black mb-2">{t.donateTitle}</h3>
-          <p className="text-sm font-medium opacity-90 leading-relaxed max-w-xs mx-auto">
-            {t.donateMsg}
+          <p className="text-sm font-medium opacity-95 leading-relaxed max-w-sm mx-auto">
+            {t.donateMsg} {language === 'bn' ? 'আপনার প্রতিটি সহযোগিতা সদকায়ে জারিয়া হিসেবে এই ইসলামিক প্রজেক্টকে জীবন্ত রাখতে সাহায্য করবে।' : 'Every contribution acts as Sadaqah Jariyah to keep this Islamic project alive and thriving.'}
           </p>
         </div>
         <Heart className="absolute -bottom-10 -right-10 w-48 h-48 text-white/10 rotate-12 pointer-events-none" fill="currentColor" />
+      </motion.div>
+
+      {/* Interactive Impact / Usage Section */}
+      <div className="bg-white dark:bg-slate-800 rounded-[2.2rem] p-6 shadow-sm border border-slate-100 dark:border-slate-700 space-y-4">
+        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+          {language === 'bn' ? '💡 আপনার সহযোগিতা কোথায় ব্যবহৃত হয়?' : '💡 Where is your support used?'}
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/60 flex items-start gap-3">
+            <span className="text-xl">🌐</span>
+            <div>
+              <h5 className="font-bold text-xs text-slate-800 dark:text-slate-100 mb-0.5">{language === 'bn' ? 'সার্ভার ও হোস্টিং' : 'Server & Hosting'}</h5>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{language === 'bn' ? 'অ্যাপের ২৪/৭ নিরবচ্ছিন্ন ক্লাউড আপটাইম বজায় রাখা।' : 'Maintaining 24/7 cloud uptime.'}</p>
+            </div>
+          </div>
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/60 flex items-start gap-3">
+            <span className="text-xl">✨</span>
+            <div>
+              <h5 className="font-bold text-xs text-slate-800 dark:text-slate-100 mb-0.5">{language === 'bn' ? 'নতুন ফিচার' : 'New Features'}</h5>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{language === 'bn' ? 'রমাদান ক্যালেন্ডার, কুইজ ও যাকাত টুলস আপগ্রেড করা।' : 'Upgrading Ramadan calendar & tools.'}</p>
+            </div>
+          </div>
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/60 flex items-start gap-3">
+            <span className="text-xl">📖</span>
+            <div>
+              <h5 className="font-bold text-xs text-slate-800 dark:text-slate-100 mb-0.5">{language === 'bn' ? 'বিজ্ঞাপনমুক্ত সেবা' : 'Ad-Free Service'}</h5>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{language === 'bn' ? 'উম্মাহর জন্য সম্পূর্ণ ফ্রি ও বিজ্ঞাপনমুক্ত রাখা।' : 'Keeping it free and ad-free.'}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="space-y-4">
-        <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 ml-2">Payment Methods</h3>
+      <div className="space-y-6 pt-2">
+        <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 ml-2">{language === 'bn' ? 'পেমেন্ট পদ্ধতিসমূহ' : 'Payment Methods'}</h3>
         
         {/* bKash */}
         <div className="bg-white dark:bg-slate-800 p-5 rounded-[2rem] shadow-sm border border-pink-100 dark:border-pink-900/20 flex items-center justify-between group hover:shadow-md transition-all">
@@ -1236,8 +2179,9 @@ const AppContent: React.FC = () => {
               <p className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">01919462158</p>
             </div>
           </div>
-          <button onClick={() => handleCopy('01919462158')} className="p-3 bg-pink-50 dark:bg-pink-900/30 text-pink-600 rounded-xl active:scale-90 transition-all">
-            {copiedText === '01919462158' ? <CheckCircle2 size={20} /> : <Copy size={20} />}
+          <button onClick={() => handleCopy('01919462158')} className="p-3 bg-pink-50 dark:bg-pink-900/30 text-pink-600 rounded-xl active:scale-90 transition-all flex items-center gap-1.5 text-xs font-bold">
+            {copiedText === '01919462158' ? <CheckCircle2 size={18} /> : <Copy size={18} />}
+            <span className="hidden sm:inline">{copiedText === '01919462158' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}</span>
           </button>
         </div>
 
@@ -1250,77 +2194,188 @@ const AppContent: React.FC = () => {
               <p className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">01919462158</p>
             </div>
           </div>
-          <button onClick={() => handleCopy('01919462158')} className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 rounded-xl active:scale-90 transition-all">
-            {copiedText === '01919462158' ? <CheckCircle2 size={20} /> : <Copy size={20} />}
+          <button onClick={() => handleCopy('01919462158')} className="p-3 bg-orange-50 dark:bg-orange-900/30 text-orange-600 rounded-xl active:scale-90 transition-all flex items-center gap-1.5 text-xs font-bold">
+            {copiedText === '01919462158' ? <CheckCircle2 size={18} /> : <Copy size={18} />}
+            <span className="hidden sm:inline">{copiedText === '01919462158' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}</span>
           </button>
         </div>
 
-        {/* Dutch Bangla */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-sm border border-blue-100 dark:border-blue-900/20 relative overflow-hidden group hover:shadow-md transition-all">
-          <div className="flex items-center justify-between mb-4 relative z-10">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-blue-700 rounded-2xl flex items-center justify-center text-white font-black text-[10px] text-center leading-tight p-1 shadow-lg shadow-blue-700/20 group-hover:scale-105 transition-transform">Dutch Bangla</div>
-              <div>
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">{t.bankAccount}</p>
-                <p className="text-base font-black text-slate-800 dark:text-slate-100">Dutch Bangla Bank</p>
+        {/* Dutch Bangla Bank */}
+        {(() => {
+          const dbblText = `Bank Name: Dutch-Bangla Bank Shyamoli Branch\nAccount Holder Name: MD Shahin\nBank Account Number: 1481030371831\nLocation: 24, Shyamoli cinema complex , 2nd floor 24/1\nSWIFT Code: DBBLBDDH\nRouting Number: 090263978`;
+          const isDbblCopied = copiedText === dbblText;
+          return (
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-[2.2rem] shadow-sm border border-blue-100 dark:border-blue-900/20 relative overflow-hidden group hover:shadow-md transition-all space-y-4">
+              <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-blue-700 rounded-2xl flex items-center justify-center text-white font-black text-[10px] text-center leading-tight p-1 shadow-lg shadow-blue-700/20 group-hover:scale-105 transition-transform">DBBL</div>
+                  <div>
+                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">Dutch-Bangla Bank Shyamoli Branch</p>
+                    <p className="text-base font-black text-slate-800 dark:text-slate-100">Dutch-Bangla Bank</p>
+                  </div>
+                </div>
+                {/* Copy All Button */}
+                <button 
+                  onClick={() => handleCopy(dbblText)} 
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl active:scale-95 transition-all flex items-center gap-2 text-xs font-black shadow-md shadow-blue-600/20"
+                >
+                  {isDbblCopied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+                  <span>{isDbblCopied ? (language === 'bn' ? 'সব কপি হয়েছে!' : 'All Copied!') : (language === 'bn' ? 'সব তথ্য একসাথে কপি' : 'Copy All Details')}</span>
+                </button>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-blue-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Account Name: <strong className="text-slate-700 dark:text-slate-200">MD Shahin</strong></span>
+                  <button onClick={() => handleCopy('MD Shahin')} className="text-blue-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === 'MD Shahin' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-blue-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Account Number: <strong className="font-mono text-slate-800 dark:text-slate-100 text-sm">1481030371831</strong></span>
+                  <button onClick={() => handleCopy('1481030371831')} className="text-blue-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === '1481030371831' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-blue-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Location: <span className="text-slate-600 dark:text-slate-300">24, Shyamoli cinema complex , 2nd floor 24/1</span></span>
+                  <button onClick={() => handleCopy('24, Shyamoli cinema complex , 2nd floor 24/1')} className="text-blue-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === '24, Shyamoli cinema complex , 2nd floor 24/1' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-xs">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                    <span className="text-blue-600 font-bold">SWIFT: DBBLBDDH</span>
+                    <button onClick={() => handleCopy('DBBLBDDH')} className="text-blue-600 hover:underline">
+                      <Copy size={13} /> {copiedText === 'DBBLBDDH' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                    <span className="text-blue-600 font-bold">Routing: 090263978</span>
+                    <button onClick={() => handleCopy('090263978')} className="text-blue-600 hover:underline">
+                      <Copy size={13} /> {copiedText === '090263978' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-            <button onClick={() => handleCopy('1481030371831')} className="p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl active:scale-90 transition-all">
-              {copiedText === '1481030371831' ? <CheckCircle2 size={20} /> : <Copy size={20} />}
-            </button>
-          </div>
-          <div className="pl-[4.5rem] space-y-1 relative z-10">
-            <p className="text-xs text-slate-500 dark:text-slate-400">Name: <span className="font-bold text-slate-700 dark:text-slate-200">Md Shahin</span></p>
-            <p className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-wide font-mono">1481030371831</p>
-          </div>
-          <div className="absolute -right-6 -bottom-6 opacity-5">
-            <HardDrive size={100} />
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Bank Asia */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-sm border border-indigo-100 dark:border-indigo-900/20 relative overflow-hidden group hover:shadow-md transition-all">
-          <div className="flex items-center justify-between mb-4 relative z-10">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-indigo-700 rounded-2xl flex items-center justify-center text-white font-black text-[10px] text-center leading-tight p-1 shadow-lg shadow-indigo-700/20 group-hover:scale-105 transition-transform">Bank Asia</div>
-              <div>
-                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">{t.bankAccount}</p>
-                <p className="text-base font-black text-slate-800 dark:text-slate-100">Bank Asia</p>
+        {(() => {
+          const bankAsiaText = `Bank Name: Bank Asia\nAccount Holder Name: MD Shahin\nBank Account Number: 01034016742\nLocation: Niloy, 60 Dargah Gate, Sylhet\nSWIFT Code: BALBBDDH\nRouting Number: 070913798`;
+          const isBankAsiaCopied = copiedText === bankAsiaText;
+          return (
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-[2.2rem] shadow-sm border border-indigo-100 dark:border-indigo-900/20 relative overflow-hidden group hover:shadow-md transition-all space-y-4">
+              <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-indigo-700 rounded-2xl flex items-center justify-center text-white font-black text-[10px] text-center leading-tight p-1 shadow-lg shadow-indigo-700/20 group-hover:scale-105 transition-transform">Bank Asia</div>
+                  <div>
+                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Bank Asia</p>
+                    <p className="text-base font-black text-slate-800 dark:text-slate-100">Bank Asia</p>
+                  </div>
+                </div>
+                {/* Copy All Button */}
+                <button 
+                  onClick={() => handleCopy(bankAsiaText)} 
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl active:scale-95 transition-all flex items-center gap-2 text-xs font-black shadow-md shadow-indigo-600/20"
+                >
+                  {isBankAsiaCopied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+                  <span>{isBankAsiaCopied ? (language === 'bn' ? 'সব কপি হয়েছে!' : 'All Copied!') : (language === 'bn' ? 'সব তথ্য একসাথে কপি' : 'Copy All Details')}</span>
+                </button>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Account Name: <strong className="text-slate-700 dark:text-slate-200">MD Shahin</strong></span>
+                  <button onClick={() => handleCopy('MD Shahin')} className="text-indigo-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === 'MD Shahin' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Account Number: <strong className="font-mono text-slate-800 dark:text-slate-100 text-sm">01034016742</strong></span>
+                  <button onClick={() => handleCopy('01034016742')} className="text-indigo-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === '01034016742' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50/50 transition-colors">
+                  <span className="text-slate-500 font-medium">Location: <span className="text-slate-600 dark:text-slate-300">Niloy, 60 Dargah Gate, Sylhet</span></span>
+                  <button onClick={() => handleCopy('Niloy, 60 Dargah Gate, Sylhet')} className="text-indigo-600 font-bold hover:underline flex items-center gap-1">
+                    <Copy size={13} /> {copiedText === 'Niloy, 60 Dargah Gate, Sylhet' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-xs">
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                    <span className="text-indigo-600 font-bold">SWIFT: BALBBDDH</span>
+                    <button onClick={() => handleCopy('BALBBDDH')} className="text-indigo-600 hover:underline">
+                      <Copy size={13} /> {copiedText === 'BALBBDDH' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+                    <span className="text-indigo-600 font-bold">Routing: 070913798</span>
+                    <button onClick={() => handleCopy('070913798')} className="text-indigo-600 hover:underline">
+                      <Copy size={13} /> {copiedText === '070913798' ? (language === 'bn' ? 'কপি হয়েছে!' : 'Copied!') : (language === 'bn' ? 'কপি' : 'Copy')}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-            <button onClick={() => handleCopy('01034016742')} className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-xl active:scale-90 transition-all">
-              {copiedText === '01034016742' ? <CheckCircle2 size={20} /> : <Copy size={20} />}
-            </button>
-          </div>
-          <div className="pl-[4.5rem] space-y-1 relative z-10">
-            <p className="text-xs text-slate-500 dark:text-slate-400">Name: <span className="font-bold text-slate-700 dark:text-slate-200">Md. Shahin</span></p>
-            <p className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-wide font-mono">01034016742</p>
-          </div>
-          <div className="absolute -right-6 -bottom-6 opacity-5">
-            <HardDrive size={100} />
-          </div>
-        </div>
+          );
+        })()}
       </div>
       
-      <div className="text-center pt-8 pb-4">
+      <div className="text-center pt-8 pb-4 space-y-3">
          <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em]">Jazakallahu Khairan</p>
+         <div>
+           <button 
+             onClick={() => setActiveTab('developer')}
+             className="text-xs font-bold text-pink-600 dark:text-pink-400 hover:underline inline-flex items-center gap-1.5 py-1"
+           >
+             <span>{language === 'bn' ? '👨‍💻 ডেভেলপার সম্পর্কে বিস্তারিত জানুন (ডেভেলপার ইনফো)' : '👨‍💻 Learn more about Developer (Developer Info)'}</span>
+             <ChevronRight size={14} />
+           </button>
+         </div>
       </div>
     </motion.div>
   );
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={(tab) => { setActiveTab(tab); setSelectedSurah(null); }} hideNav={!!selectedSurah || activeTab === 'developer' || activeTab === 'donation' || activeTab === 'tasbih' || activeTab === 'games'}>
+    <Layout 
+      activeTab={activeTab} 
+      setActiveTab={(tab) => { setActiveTab(tab); setSelectedSurah(null); }} 
+      hideNav={!!selectedSurah || ['developer', 'donation', 'tasbih', 'games', 'ramadan', 'duas', 'khatam', 'names99', 'zakat', 'jummah'].includes(activeTab)}
+    >
       {isLoading && <div className="fixed inset-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center"><div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}
       <AnimatePresence mode="wait">
         {selectedSurah ? renderSurahDetail() : (
           <div className="pb-8" key="main-content">
             {activeTab === 'home' && renderHome()}
+            {activeTab === 'ramadan' && (
+              <RamadanDedicatedView 
+                setActiveTab={setActiveTab} 
+                prayerData={prayerData} 
+                ramadanDays={ramadanDays} 
+                ramadanCalendar={ramadanCalendar} 
+              />
+            )}
             {activeTab === 'quran' && renderSurahList()}
             {activeTab === 'prayer' && renderPrayerTimesView()}
             {activeTab === 'audio' && renderAudioQuran()}
             {activeTab === 'hadis' && renderHadis()}
             {activeTab === 'tasbih' && <TasbihView setActiveTab={setActiveTab} />}
             {activeTab === 'games' && <IslamicGames setActiveTab={setActiveTab} />}
+            {activeTab === 'duas' && <HisnulMuslimView setActiveTab={setActiveTab} />}
+            {activeTab === 'khatam' && <KhatamTrackerView setActiveTab={setActiveTab} onSelectJuzToRead={() => setActiveTab('quran')} />}
+            {activeTab === 'names99' && <AsmaulHusnaView setActiveTab={setActiveTab} />}
+            {activeTab === 'zakat' && <ZakatCalculatorView setActiveTab={setActiveTab} />}
+            {activeTab === 'jummah' && <FridayJummahHub setActiveTab={setActiveTab} onReadSurahKahf={() => handleSurahClick(18)} />}
             {activeTab === 'settings' && renderSettings()}
             {activeTab === 'developer' && renderDeveloperPage()}
             {activeTab === 'donation' && renderDonationPage()}
@@ -1329,6 +2384,72 @@ const AppContent: React.FC = () => {
       </AnimatePresence>
       {playingAudio && <AudioPlayer url={playingAudio.url} title={playingAudio.title} onClose={() => setPlayingAudio(null)} />}
       {renderPreviewModal()}
+      <BookmarkModal
+        isOpen={isBookmarkModalOpen}
+        onClose={() => setIsBookmarkModalOpen(false)}
+        onSelectBookmark={(surahNum, ayahNum) => {
+          handleSurahClick(surahNum, ayahNum);
+        }}
+      />
+      <UpdateModal 
+        updateInfo={updateInfo} 
+        isOpen={isUpdateModalOpen} 
+        onClose={() => setIsUpdateModalOpen(false)} 
+      />
+      <ThemeSelectorModal 
+        isOpen={isThemeModalOpen} 
+        onClose={() => setIsThemeModalOpen(false)} 
+      />
+      <NotificationCenterModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        announcements={announcements}
+        readIds={readAnnouncementIds}
+        onOpenAdmin={() => setIsAdminBroadcastModalOpen(true)}
+        onOpenContactAdmin={() => setIsContactAdminModalOpen(true)}
+        onPreferencesChange={(p) => setNotificationPrefs(p)}
+        onSelectAnnouncement={(announcement) => {
+          if (announcement.targetTab) {
+            setActiveTab(announcement.targetTab);
+            setIsNotificationModalOpen(false);
+          }
+        }}
+      />
+      <ContactAdminModal
+        isOpen={isContactAdminModalOpen}
+        onClose={() => setIsContactAdminModalOpen(false)}
+      />
+      <AdminBroadcastModal
+        isOpen={isAdminBroadcastModalOpen}
+        onClose={() => setIsAdminBroadcastModalOpen(false)}
+        announcements={announcements}
+        onRefresh={() => {
+          // Trigger optimistic sync if needed
+          const readIds = getReadAnnouncementIds();
+          setReadAnnouncementIds(readIds);
+        }}
+      />
+      <InAppNotificationBanner
+        announcement={latestUnseenAnnouncement}
+        onClose={() => {
+          if (latestUnseenAnnouncement) {
+            markAnnouncementAsRead(latestUnseenAnnouncement.id);
+          }
+          setLatestUnseenAnnouncement(null);
+        }}
+        onOpenCenter={() => {
+          if (latestUnseenAnnouncement) {
+            markAnnouncementAsRead(latestUnseenAnnouncement.id);
+          }
+          setLatestUnseenAnnouncement(null);
+          setIsNotificationModalOpen(true);
+        }}
+      />
+      <AyahSocialCardModal
+        isOpen={isSocialCardOpen}
+        onClose={() => setIsSocialCardOpen(false)}
+        data={socialCardData}
+      />
     </Layout>
   );
 };
@@ -1336,57 +2457,228 @@ const AppContent: React.FC = () => {
 interface AyahItemProps {
   ayah: Ayah;
   surah: SurahDetail;
+  readingViewMode?: ReadingViewMode;
   onPlayAudio: (url: string, title: string) => void;
+  onOpenSocialCard?: (data: AyahCardData) => void;
 }
 
-const AyahItem: React.FC<AyahItemProps> = ({ ayah, surah, onPlayAudio }) => {
+const AyahItem: React.FC<AyahItemProps> = ({ ayah, surah, readingViewMode = 'all', onPlayAudio, onOpenSocialCard }) => {
   const [isTafsirExpanded, setIsTafsirExpanded] = useState(false);
-  const { language, arabicFontSize, translationFontSize, bookmarks, addBookmark, removeBookmark } = useApp();
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
+  const { 
+    language, arabicFontSize, translationFontSize, 
+    bookmarks, addBookmark, removeBookmark, 
+    updateLastRead, activeThemeConfig 
+  } = useApp();
   const t = UI_TRANSLATIONS[language];
 
-  const isBookmarked = bookmarks.some(b => b.surahNumber === surah.number && b.ayahNumber === ayah.numberInSurah);
+  const currentBookmark = bookmarks.find(b => b.surahNumber === surah.number && b.ayahNumber === ayah.numberInSurah);
+  const isBookmarked = !!currentBookmark;
+
+  const handleToggleBookmark = (category: BookmarkCategory = 'all') => {
+    if (isBookmarked && !showCategoryMenu) {
+      removeBookmark(surah.number, ayah.numberInSurah);
+    } else {
+      addBookmark({
+        surahNumber: surah.number,
+        ayahNumber: ayah.numberInSurah,
+        surahName: surah.englishName,
+        timestamp: Date.now(),
+        category
+      });
+      setShowCategoryMenu(false);
+    }
+  };
+
+  const isArabicOnly = readingViewMode === 'arabic-only';
+  const isTranslationOnly = readingViewMode === 'translation-only';
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700/50 hover:shadow-md transition-all">
-      <div className="flex justify-between items-center mb-8">
-        <div className="w-12 h-12 bg-slate-50 dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 rounded-2xl flex items-center justify-center text-sm font-black border border-slate-100 dark:border-slate-800">{ayah.numberInSurah}</div>
-        <div className="flex gap-3">
-          <button onClick={() => ayah.tafsir && setIsTafsirExpanded(!isTafsirExpanded)} className={`p-4 rounded-2xl active:scale-90 transition-transform flex items-center gap-2 font-black text-[10px] uppercase tracking-wider px-5 ${isTafsirExpanded ? 'bg-orange-600 text-white' : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600'}`}>
-            <Info size={16} />
-            {t.tafsir}
-            {isTafsirExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-          <button onClick={() => ayah.audio && onPlayAudio(ayah.audio, `${surah.englishName} : ${ayah.numberInSurah}`)} className="p-4 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-2xl active:scale-90 transition-transform"><Play size={20} fill="currentColor" /></button>
-          <button onClick={() => isBookmarked ? removeBookmark(surah.number, ayah.numberInSurah) : addBookmark({surahNumber: surah.number, ayahNumber: ayah.numberInSurah, surahName: surah.englishName, timestamp: Date.now()})} className={`p-4 rounded-2xl transition-all active:scale-90 ${isBookmarked ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600' : 'bg-slate-50 dark:bg-slate-700 text-slate-400'}`}>{isBookmarked ? <BookmarkCheck size={20} /> : <BookmarkIcon size={20} />}</button>
+    <div 
+      id={`ayah-${ayah.numberInSurah}`}
+      onClick={() => {
+        updateLastRead({
+          surahNumber: surah.number,
+          ayahNumber: ayah.numberInSurah,
+          surahName: surah.englishName,
+          timestamp: Date.now()
+        });
+      }}
+      className={`rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-700/50 hover:shadow-md transition-all ${
+        isArabicOnly 
+          ? 'p-6 sm:p-8 bg-amber-50/20 dark:bg-slate-800/90' 
+          : 'p-7 sm:p-8 bg-white dark:bg-slate-800'
+      }`}
+    >
+      <div className="flex justify-between items-center mb-6">
+        <div 
+          className="w-11 h-11 rounded-2xl flex items-center justify-center text-xs font-black border border-slate-100 dark:border-slate-800 shadow-sm"
+          style={{ backgroundColor: `${activeThemeConfig.primaryColor}15`, color: activeThemeConfig.primaryColor }}
+        >
+          {ayah.numberInSurah}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {!isArabicOnly && ayah.tafsir && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsTafsirExpanded(!isTafsirExpanded);
+              }} 
+              className={`p-3 rounded-2xl active:scale-90 transition-transform flex items-center gap-1.5 font-black text-[10px] uppercase tracking-wider px-3.5 ${
+                isTafsirExpanded 
+                  ? 'bg-orange-600 text-white' 
+                  : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600'
+              }`}
+            >
+              <Info size={14} />
+              <span>{t.tafsir}</span>
+              {isTafsirExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+          )}
+
+          {ayah.audio && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlayAudio(ayah.audio!, `${surah.englishName} : ${ayah.numberInSurah}`);
+                updateLastRead({
+                  surahNumber: surah.number,
+                  ayahNumber: ayah.numberInSurah,
+                  surahName: surah.englishName,
+                  timestamp: Date.now()
+                });
+              }} 
+              className="p-3 rounded-2xl active:scale-90 transition-transform shadow-sm"
+              style={{ backgroundColor: `${activeThemeConfig.primaryColor}15`, color: activeThemeConfig.primaryColor }}
+              title="Play verse"
+            >
+              <Play size={17} fill="currentColor" />
+            </button>
+          )}
+
+          {/* Social Image Card Generator Button */}
+          {onOpenSocialCard && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSocialCard({
+                  surahNumber: surah.number,
+                  ayahNumber: ayah.numberInSurah,
+                  surahNameBn: BENGALI_SURAH_NAMES[surah.number] || surah.englishName,
+                  surahNameEn: surah.englishName,
+                  arabicText: ayah.text,
+                  bengaliTranslation: ayah.translation
+                });
+              }}
+              className="p-3 rounded-2xl active:scale-90 transition-transform bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 hover:scale-105 shadow-sm"
+              title="সোশ্যাল শেয়ার কার্ড তৈরি করুন"
+            >
+              <Sparkles size={16} />
+            </button>
+          )}
+
+          {/* Bookmark Button with Category Menu */}
+          <div className="relative">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isBookmarked) {
+                  removeBookmark(surah.number, ayah.numberInSurah);
+                } else {
+                  setShowCategoryMenu(!showCategoryMenu);
+                }
+              }} 
+              className="p-3 rounded-2xl transition-all active:scale-90"
+              style={isBookmarked ? { backgroundColor: `${activeThemeConfig.primaryColor}20`, color: activeThemeConfig.primaryColor } : { backgroundColor: 'rgba(148, 163, 184, 0.1)', color: '#94a3b8' }}
+              title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+            >
+              {isBookmarked ? <BookmarkCheck size={18} /> : <BookmarkIcon size={18} />}
+            </button>
+
+            {/* Quick Bookmark Category Picker Dropdown */}
+            {showCategoryMenu && !isBookmarked && (
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-2 shadow-2xl z-30 w-44 space-y-1 text-left"
+              >
+                <p className="px-2 py-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                  {language === 'bn' ? 'ক্যাটাগরি বাছাই করুন' : 'Select Category'}
+                </p>
+                {[
+                  { id: 'all' as BookmarkCategory, labelBn: '📌 সাধারণ বুকমার্ক', labelEn: 'Default' },
+                  { id: 'daily' as BookmarkCategory, labelBn: '📖 প্রতিদিনের আমল', labelEn: 'Daily Recitation' },
+                  { id: 'dua' as BookmarkCategory, labelBn: '🤲 প্রিয় দু\'আ', labelEn: 'Dua' },
+                  { id: 'memorize' as BookmarkCategory, labelBn: '🧠 মুখস্থ করার আয়াত', labelEn: 'Memorize' }
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => handleToggleBookmark(cat.id)}
+                    className="w-full text-left px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors"
+                  >
+                    {language === 'bn' ? cat.labelBn : cat.labelEn}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
-      <p className="font-arabic text-right mb-8 leading-[2.5] text-slate-800 dark:text-slate-100 drop-shadow-sm" style={{ fontSize: `${arabicFontSize}px` }}>{ayah.text}</p>
-      <div className="h-px w-full bg-slate-100 dark:bg-slate-700/50 mb-6" />
-      <p className={`text-slate-600 dark:text-slate-300 leading-relaxed font-${language} font-medium mb-4`} style={{ fontSize: `${translationFontSize}px` }}>{ayah.translation}</p>
+      {/* Arabic Ayah Text */}
+      <p 
+        className={`font-arabic leading-[2.5] text-slate-900 dark:text-slate-50 drop-shadow-sm ${
+          isArabicOnly ? 'text-center my-4' : 'text-right mb-6'
+        }`} 
+        style={{ fontSize: `${isArabicOnly ? arabicFontSize + 4 : arabicFontSize}px` }}
+      >
+        {ayah.text}
+        {isArabicOnly && (
+          <span className="inline-block mx-2 text-amber-600 dark:text-amber-400 font-bold text-lg select-none">
+            ۝
+          </span>
+        )}
+      </p>
+
+      {/* Translation (hidden in pure Arabic-only mode) */}
+      {!isArabicOnly && (
+        <>
+          <div className="h-px w-full bg-slate-100 dark:bg-slate-700/50 mb-5" />
+          <p 
+            className={`text-slate-600 dark:text-slate-300 leading-relaxed font-${language} font-medium mb-3`} 
+            style={{ fontSize: `${translationFontSize}px` }}
+          >
+            {ayah.translation}
+          </p>
+        </>
+      )}
 
       {/* Inline Expandable Tafsir Section */}
-      <AnimatePresence>
-        {isTafsirExpanded && (
-          <motion.div 
-            initial={{ height: 0, opacity: 0, marginTop: 0 }}
-            animate={{ height: 'auto', opacity: 1, marginTop: 24 }}
-            exit={{ height: 0, opacity: 0, marginTop: 0 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="p-6 bg-slate-50 dark:bg-slate-900/40 rounded-[1.5rem] border border-orange-100 dark:border-orange-900/20">
-              <div className="flex items-center gap-2 mb-4">
-                 <div className="w-6 h-6 bg-orange-100 dark:bg-orange-900/40 rounded-full flex items-center justify-center text-orange-600"><Info size={12} /></div>
-                 <span className="text-[10px] font-black uppercase text-orange-600 tracking-widest">{t.tafsir}</span>
+      {!isArabicOnly && (
+        <AnimatePresence>
+          {isTafsirExpanded && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0, marginTop: 0 }}
+              animate={{ height: 'auto', opacity: 1, marginTop: 18 }}
+              exit={{ height: 0, opacity: 0, marginTop: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="p-5 bg-slate-50 dark:bg-slate-900/40 rounded-[1.5rem] border border-orange-100 dark:border-orange-900/20">
+                <div className="flex items-center gap-2 mb-3">
+                   <div className="w-6 h-6 bg-orange-100 dark:bg-orange-900/40 rounded-full flex items-center justify-center text-orange-600">
+                     <Info size={12} />
+                   </div>
+                   <span className="text-[10px] font-black uppercase text-orange-600 tracking-widest">{t.tafsir}</span>
+                </div>
+                <p className={`leading-[2.2] text-slate-800 dark:text-slate-100 ${language === 'ar' ? 'text-right font-arabic text-xl' : 'text-left'} ${language === 'bn' ? 'font-bangla text-base' : 'text-sm'}`}>
+                  {ayah.tafsir}
+                </p>
               </div>
-              <p className={`leading-[2.2] text-slate-800 dark:text-slate-100 ${language === 'ar' ? 'text-right font-arabic text-xl' : 'text-left'} ${language === 'bn' ? 'font-bangla text-xl' : 'text-base'}`}>
-                {ayah.tafsir}
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 };
@@ -1397,35 +2689,42 @@ interface SurahCardProps {
   onPlayAudio: (e: React.MouseEvent) => void;
 }
 
-const SurahCard: React.FC<SurahCardProps> = ({ surah, onClick, onPlayAudio }) => (
-  <div onClick={onClick} className="bg-white dark:bg-slate-800 p-1 rounded-[2rem] shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group border border-slate-100 dark:border-slate-700/50">
-    <div className="bg-slate-50 dark:bg-slate-900/50 p-5 rounded-[1.8rem] flex items-center justify-between group-hover:bg-white dark:group-hover:bg-slate-800 transition-colors">
-      <div className="flex items-center gap-5">
-        <div className="relative w-12 h-12 flex items-center justify-center group-hover:scale-105 transition-transform">
-          <div className="absolute inset-0 w-full h-full bg-emerald-100 dark:bg-emerald-900/30 rounded-xl rotate-45 group-hover:rotate-90 transition-all duration-700" />
-          <span className="relative z-10 text-sm font-black text-emerald-600 dark:text-emerald-400">{surah.number}</span>
-        </div>
-        <div>
-          <div className="flex items-center gap-3">
-            <h4 className="font-black text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 transition-colors tracking-tight text-lg leading-tight">{surah.englishName}</h4>
-            <button 
-              onClick={onPlayAudio}
-              className="p-1.5 bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all active:scale-90"
-              title="Play full recitation"
-            >
-              <Play size={14} fill="currentColor" />
-            </button>
+const SurahCard: React.FC<SurahCardProps> = ({ surah, onClick, onPlayAudio }) => {
+  const { activeThemeConfig } = useApp();
+  return (
+    <div onClick={onClick} className="bg-white dark:bg-slate-800 p-1 rounded-[2rem] shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group border border-slate-100 dark:border-slate-700/50">
+      <div className="bg-slate-50 dark:bg-slate-900/50 p-5 rounded-[1.8rem] flex items-center justify-between group-hover:bg-white dark:group-hover:bg-slate-800 transition-colors">
+        <div className="flex items-center gap-5">
+          <div className="relative w-12 h-12 flex items-center justify-center group-hover:scale-105 transition-transform">
+            <div 
+              className="absolute inset-0 w-full h-full rounded-xl rotate-45 group-hover:rotate-90 transition-all duration-700 opacity-25"
+              style={{ backgroundColor: activeThemeConfig.primaryColor }}
+            />
+            <span className="relative z-10 text-sm font-black" style={{ color: activeThemeConfig.primaryColor }}>{surah.number}</span>
           </div>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 leading-none">{surah.revelationType} • {surah.numberOfAyahs} Ayahs</p>
+          <div>
+            <div className="flex items-center gap-3">
+              <h4 className="font-black text-slate-800 dark:text-slate-100 transition-colors tracking-tight text-lg leading-tight group-hover:text-amber-500">{surah.englishName}</h4>
+              <button 
+                onClick={onPlayAudio}
+                className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all active:scale-90 shadow-sm"
+                style={{ backgroundColor: `${activeThemeConfig.primaryColor}20`, color: activeThemeConfig.primaryColor }}
+                title="Play full recitation"
+              >
+                <Play size={14} fill="currentColor" />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 leading-none">{surah.revelationType} • {surah.numberOfAyahs} Ayahs</p>
+          </div>
         </div>
-      </div>
-      <div className="text-right">
-        <p className="font-arabic text-2xl text-emerald-800 dark:text-emerald-400 font-bold leading-none opacity-80 group-hover:opacity-100 transition-opacity">{surah.name}</p>
-        <p className="text-[9px] text-slate-400 font-black uppercase tracking-tighter mt-1">{surah.englishNameTranslation}</p>
+        <div className="text-right">
+          <p className="font-arabic text-2xl font-bold leading-none opacity-85 group-hover:opacity-100 transition-opacity" style={{ color: activeThemeConfig.primaryColor }}>{surah.name}</p>
+          <p className="text-[9px] text-slate-400 font-black uppercase tracking-tighter mt-1">{surah.englishNameTranslation}</p>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const App: React.FC = () => (
   <AppProvider>
