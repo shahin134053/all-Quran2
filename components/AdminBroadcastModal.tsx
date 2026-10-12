@@ -357,7 +357,7 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                       {language === 'bn' ? 'অ্যাডমিন কন্ট্রোল সেন্টার' : 'Admin Control Center'}
                     </h3>
                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                      PIN: 830973
+                      Secure Access
                     </span>
                   </div>
                   <p className="text-[11px] font-medium text-slate-400">
@@ -388,8 +388,8 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                   </h4>
                   <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
                     {language === 'bn' 
-                      ? 'অননুমোদিত বার্তা পাঠানো রোধ করতে আপনার সিকিউরিটি পিন (৮৩০৯৭৩) দিন।' 
-                      : 'Please enter your 6-digit administrator PIN (830973).'}
+                      ? 'অননুমোদিত বার্তা পাঠানো রোধ করতে আপনার গোপন পিন নম্বর দিন।' 
+                      : 'Please enter your 6-digit administrator PIN.'}
                   </p>
                 </div>
 
@@ -418,7 +418,7 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                   {authError && (
                     <p className="text-xs font-bold text-rose-500 flex items-center justify-center gap-1">
                       <AlertCircle size={13} />
-                      <span>{language === 'bn' ? 'ভুল পিন নম্বর! সঠিক পিন: ৮৩০৯৭৩' : 'Invalid PIN! Correct PIN is 830973'}</span>
+                      <span>{language === 'bn' ? 'ভুল পিন নম্বর! পুনরায় চেষ্টা করুন।' : 'Invalid PIN! Please try again.'}</span>
                     </p>
                   )}
 

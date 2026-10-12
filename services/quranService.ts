@@ -9,7 +9,9 @@ const TRANSLATION_MAP: Record<AppLanguage, string> = {
   en: 'en.pickthall',
   bn: 'bn.bengali',
   hi: 'hi.hindi',
-  ar: 'ar.jalalayn'
+  ar: 'ar.jalalayn',
+  de: 'de.aburida',
+  es: 'es.cortes'
 };
 
 // Tafsir/Explanatory identifiers for the API
@@ -17,7 +19,9 @@ const TAFSIR_MAP: Record<AppLanguage, string> = {
   en: 'en.ibnkathir',
   bn: 'bn.fmazid', // Fazlul Karim - often detailed
   hi: 'hi.hindi',
-  ar: 'ar.jalalayn'
+  ar: 'ar.jalalayn',
+  de: 'de.aburida',
+  es: 'es.cortes'
 };
 
 const CACHE_PREFIX = 'quran_surah_';
@@ -118,22 +122,98 @@ export const fetchSurahDetail = async (
 };
 
 export const fetchPrayerTimings = async (lat: number, lng: number): Promise<{ timings: PrayerTimings, hijri: HijriDate }> => {
-  const response = await fetch(`${PRAYER_BASE_URL}/timings?latitude=${lat}&longitude=${lng}&method=2`);
-  const data = await response.json();
-  return {
-    timings: data.data.timings,
-    hijri: data.data.date.hijri
-  };
+  const todayKey = `prayer_cache_${new Date().toISOString().split('T')[0]}_${lat.toFixed(1)}_${lng.toFixed(1)}`;
+  try {
+    const cached = localStorage.getItem(todayKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {
+    // ignore localstorage error
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const response = await fetch(`${PRAYER_BASE_URL}/timings?latitude=${lat}&longitude=${lng}&method=2`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Prayer API responded with status ${response.status}`);
+    }
+    const data = await response.json();
+    if (!data.data || !data.data.timings) {
+      throw new Error('Invalid prayer timings data');
+    }
+    const result = {
+      timings: data.data.timings,
+      hijri: data.data.date.hijri
+    };
+
+    try {
+      localStorage.setItem(todayKey, JSON.stringify(result));
+    } catch (e) {}
+
+    return result;
+  } catch (error) {
+    console.warn("Prayer timings fetch error or rate limit, using offline fallback:", error);
+    return {
+      timings: {
+        Fajr: "04:32",
+        Sunrise: "05:48",
+        Dhuhr: "12:05",
+        Asr: "16:20",
+        Sunset: "18:22",
+        Maghrib: "18:22",
+        Isha: "19:38",
+        Imsak: "04:22",
+        Midnight: "00:05"
+      },
+      hijri: {
+        date: "11/10/1447",
+        day: "11",
+        month: { number: 9, en: "Ramadān", ar: "رَمضَان" },
+        year: "1447"
+      }
+    };
+  }
 };
 
 export const fetchRamadanCalendar = async (lat: number, lng: number, year: number): Promise<any[]> => {
+  const calKey = `ramadan_cal_${year}_${lat.toFixed(1)}_${lng.toFixed(1)}`;
   try {
+    const cached = localStorage.getItem(calKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (e) {}
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     // Fetch specifically for Ramadan (Month 9) of the given Hijri year
-    const response = await fetch(`${PRAYER_BASE_URL}/hijriCalendar?latitude=${lat}&longitude=${lng}&method=2&month=9&year=${year}`);
+    const response = await fetch(`${PRAYER_BASE_URL}/hijriCalendar?latitude=${lat}&longitude=${lng}&method=2&month=9&year=${year}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return [];
+    }
     const data = await response.json();
-    return data.data;
+    if (Array.isArray(data.data)) {
+      try {
+        localStorage.setItem(calKey, JSON.stringify(data.data));
+      } catch (e) {}
+      return data.data;
+    }
+    return [];
   } catch (error) {
-    console.error("Failed to fetch Ramadan calendar", error);
+    console.warn("Failed to fetch Ramadan calendar or rate limited", error);
     return [];
   }
 };

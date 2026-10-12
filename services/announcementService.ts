@@ -560,13 +560,23 @@ let cleanupWorkerInterval: any = null;
 /**
  * Starts automatic 24h expiration sweeper ensuring 0 KB backend retention
  */
-export function startAutoCleanupWorker(intervalMs = 60 * 1000): () => void {
-  // Run once immediately on start
-  cleanupAllExpiredData().catch(() => {});
+export function startAutoCleanupWorker(intervalMs = 4 * 60 * 60 * 1000): () => void {
+  // Check if cleaned in the last 4 hours to avoid Firestore rate limits & quota exhaustion
+  try {
+    const lastCleanup = localStorage.getItem('last_firestore_cleanup_time');
+    const now = Date.now();
+    if (!lastCleanup || now - parseInt(lastCleanup, 10) > 4 * 60 * 60 * 1000) {
+      cleanupAllExpiredData().then(() => {
+        try { localStorage.setItem('last_firestore_cleanup_time', String(Date.now())); } catch (e) {}
+      }).catch(() => {});
+    }
+  } catch (e) {}
 
   if (cleanupWorkerInterval) clearInterval(cleanupWorkerInterval);
   cleanupWorkerInterval = setInterval(() => {
-    cleanupAllExpiredData().catch(() => {});
+    cleanupAllExpiredData().then(() => {
+      try { localStorage.setItem('last_firestore_cleanup_time', String(Date.now())); } catch (e) {}
+    }).catch(() => {});
   }, intervalMs);
 
   return () => {

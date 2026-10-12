@@ -52,6 +52,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('userName', userName);
 
     document.documentElement.setAttribute('data-islamic-theme', islamicTheme);
+    document.documentElement.style.setProperty('--theme-primary', activeThemeConfig.primaryColor);
+    document.documentElement.style.setProperty('--theme-primary-light', activeThemeConfig.primaryLight);
+    document.documentElement.style.setProperty('--theme-primary-dark', activeThemeConfig.primaryDark);
+    document.documentElement.style.setProperty('--theme-accent-gold', activeThemeConfig.accentGold);
 
     if (theme === ThemeMode.DARK) {
       document.documentElement.classList.add('dark');

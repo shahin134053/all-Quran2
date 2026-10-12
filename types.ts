@@ -1,5 +1,5 @@
 
-export type AppLanguage = 'en' | 'bn' | 'ar' | 'hi';
+export type AppLanguage = 'en' | 'bn' | 'ar' | 'hi' | 'de' | 'es';
 
 export interface SurahMetadata {
   number: number;

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX, Sparkles, HeartHandshake, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { UI_TRANSLATIONS } from '../constants';
 
 interface SalamGreetingProps {
   userName: string;
@@ -9,6 +10,7 @@ interface SalamGreetingProps {
 
 export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
   const { language, activeThemeConfig } = useApp();
+  const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasSpokenOnce, setHasSpokenOnce] = useState(false);
   const hasAttemptedAutoPlay = useRef(false);
@@ -53,23 +55,29 @@ export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
       try {
         window.speechSynthesis.cancel();
         
-        const greetingText = language === 'bn'
-          ? `আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ। ${userName ? userName + ',' : ''} আল-মুনীর ইসলামিক অ্যাপে আপনাকে স্বাগতম।`
-          : `Assalamu Alaikum wa Rahmatullah. Welcome ${userName || ''} to Al-Muneer.`;
+        let greetingText = t.salamSpokenGreeting;
+        if (userName) {
+          if (language === 'bn') greetingText = `আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ। ${userName}, আল- শাহিন ( Shahin) Quran অ্যাপে আপনাকে স্বাগতম।`;
+          else if (language === 'hi') greetingText = `अस्सलाम वालेकुम व रहमतुल्लाह। ${userName}, अल-शाहिन (Shahin) क़ुरान ऐप में आपका स्वागत है।`;
+          else if (language === 'es') greetingText = `Assalamu Alaikum wa Rahmatullah. ¡Bienvenido ${userName} a Al-Shahin (Shahin) Corán!`;
+          else if (language === 'ar') greetingText = `السلام عليكم ورحمة الله وبركاته. مرحبًا ${userName} في قرآن الشاهين.`;
+          else if (language === 'de') greetingText = `Assalamu Alaikum wa Rahmatullah. Willkommen ${userName} bei Al-Shahin (Shahin) Koran!`;
+          else greetingText = `Assalamu Alaikum wa Rahmatullah. Welcome ${userName} to Al-Shahin (Shahin) Quran.`;
+        }
 
         const utterance = new SpeechSynthesisUtterance(greetingText);
         utterance.rate = 0.92;
         utterance.pitch = 1.05;
 
-        // Try to find a Bengali or suitable voice
+        // Try to find voice matching selected language
         const voices = window.speechSynthesis.getVoices();
-        const bnVoice = voices.find(v => v.lang.startsWith('bn')) || 
-                        voices.find(v => v.lang.startsWith('ar')) || 
-                        voices.find(v => v.lang.startsWith('hi')) || 
-                        voices[0];
+        const voice = voices.find(v => v.lang.toLowerCase().startsWith(language)) || 
+                      voices.find(v => v.lang.startsWith('ar')) || 
+                      voices.find(v => v.lang.startsWith('en')) || 
+                      voices[0];
 
-        if (bnVoice) {
-          utterance.voice = bnVoice;
+        if (voice) {
+          utterance.voice = voice;
         }
 
         utterance.onend = () => {
@@ -151,7 +159,7 @@ export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
               السَّلَامُ عَلَيْكُمْ وَرَحْمَةُ اللهِ وَبَرَكَاتُهُ
             </motion.div>
 
-            {/* Bangla & English Greeting with UserName */}
+            {/* Localized Greeting with UserName */}
             <motion.div 
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
@@ -159,12 +167,10 @@ export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
               className="flex items-center gap-2 mt-0.5"
             >
               <h2 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100 tracking-tight truncate">
-                {language === 'bn' 
-                  ? `আসসালামু আলাইকুম, ${userName || 'প্রিয় পাঠক'}!`
-                  : `Assalamu Alaikum, ${userName || 'Welcome'}!`}
+                {userName ? `${t.salamBannerTitle}, ${userName}!` : `${t.salamBannerTitle}!`}
               </h2>
               <span className="hidden sm:inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                মুবারক
+                {t.salamMubarakBadge}
               </span>
             </motion.div>
           </div>
@@ -173,7 +179,7 @@ export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
         {/* Voice Play/Replay Interactive Button */}
         <button
           onClick={speakSalam}
-          title={language === 'bn' ? 'ভয়েস সালাম শুনুন' : 'Listen Voice Greeting'}
+          title={t.listenVoiceSalam}
           className={`flex items-center gap-1.5 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-2xl text-xs font-black shrink-0 transition-all active:scale-95 shadow-sm ${
             isPlaying
               ? 'bg-amber-500 text-white shadow-amber-500/30 animate-pulse'
@@ -182,9 +188,7 @@ export const SalamGreeting: React.FC<SalamGreetingProps> = ({ userName }) => {
         >
           <Volume2 size={16} className={isPlaying ? 'animate-bounce text-white' : 'text-amber-500'} />
           <span className="hidden xs:inline">
-            {isPlaying 
-              ? (language === 'bn' ? 'সালাম দিচ্ছে...' : 'Speaking...') 
-              : (language === 'bn' ? 'সালাম শুনুন' : 'Hear Salam')}
+            {isPlaying ? t.speakingVoiceSalam : t.listenVoiceSalam}
           </span>
         </button>
       </div>

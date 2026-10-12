@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   ArrowLeft, Plus, RefreshCw, Minus, Activity, 
-  Sparkles, CheckCircle2, Volume2, VolumeX, Maximize2, Minimize2
+  CheckCircle2, Maximize2, Minimize2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { UI_TRANSLATIONS } from '../constants';
+import { AppLanguage } from '../types';
 
 interface TasbihViewProps {
   setActiveTab: (tab: string) => void;
@@ -15,7 +16,7 @@ interface DhikrPreset {
   id: string;
   arabic: string;
   transliteration: string;
-  meaningBn: string;
+  meanings: Record<AppLanguage, string>;
   target: number;
 }
 
@@ -24,49 +25,91 @@ const DHIKR_PRESETS: DhikrPreset[] = [
     id: 'subhanallah',
     arabic: 'سُبْحَانَ اللَّهِ',
     transliteration: 'SubhanAllah',
-    meaningBn: 'আল্লাহ অতি পবিত্র ও নিষ্কলুষ',
+    meanings: {
+      bn: 'আল্লাহ অতি পবিত্র ও নিষ্কলুষ',
+      en: 'Glory be to Allah',
+      hi: 'अल्लाह अत्यंत पवित्र और निर्दोष है',
+      es: 'Gloria a Alá',
+      ar: 'سبحان الله وبحمده',
+      de: 'Gepriesen sei Allah'
+    },
     target: 33
   },
   {
     id: 'alhamdulillah',
     arabic: 'الْحَمْدُ لِلَّهِ',
     transliteration: 'Alhamdulillah',
-    meaningBn: 'সমস্ত প্রশংসা একমাত্র আল্লাহর জন্য',
+    meanings: {
+      bn: 'সমস্ত প্রশংসা একমাত্র আল্লাহর জন্য',
+      en: 'Praise be to Allah',
+      hi: 'तमाम प्रशंसा केवल अल्लाह के लिए है',
+      es: 'Alabado sea Alá',
+      ar: 'الحمد لله رب العالمين',
+      de: 'Alles Lob gebührt Allah'
+    },
     target: 33
   },
   {
     id: 'allahuakbar',
     arabic: 'اللَّهُ أَكْبَرُ',
     transliteration: 'Allahu Akbar',
-    meaningBn: 'আল্লাহ সবচেয়ে মহান ও সর্বশ্রেষ্ঠ',
+    meanings: {
+      bn: 'আল্লাহ সবচেয়ে মহান ও সর্বশ্রেষ্ঠ',
+      en: 'Allah is the Greatest',
+      hi: 'अल्लाह सबसे महान और सर्वोच्च है',
+      es: 'Alá es el Más Grande',
+      ar: 'الله أكبر كبيرا',
+      de: 'Allah ist der Größte'
+    },
     target: 34
   },
   {
     id: 'lailahaillallah',
     arabic: 'لَا إِلَٰهَ إِلَّا اللَّهُ',
     transliteration: 'La ilaha illallah',
-    meaningBn: 'আল্লাহ ছাড়া কোনো সত্য উপাস্য নেই',
+    meanings: {
+      bn: 'আল্লাহ ছাড়া কোনো সত্য উপাস্য নেই',
+      en: 'There is no god but Allah',
+      hi: 'अल्लाह के सिवा कोई सच्चा पूज्य नहीं है',
+      es: 'No hay más Dios que Alá',
+      ar: 'لا إله إلا الله وحده لا شريك له',
+      de: 'Es gibt keinen Gott außer Allah'
+    },
     target: 100
   },
   {
     id: 'astaghfirullah',
     arabic: 'أَسْتَغْفِرُ اللَّهَ',
     transliteration: 'Astaghfirullah',
-    meaningBn: 'আমি আল্লাহর কাছে ক্ষমা প্রার্থনা করছি',
+    meanings: {
+      bn: 'আমি আল্লাহর কাছে ক্ষমা প্রার্থনা করছি',
+      en: 'I seek forgiveness from Allah',
+      hi: 'मैं अल्लाह से क्षमा माँगता हूँ',
+      es: 'Pido perdón a Alá',
+      ar: 'أستغفر الله وأتوب إليه',
+      de: 'Ich bitte Allah um Vergebung'
+    },
     target: 100
   },
   {
     id: 'durood',
     arabic: 'اللَّهُمَّ صَلِّ عَلَىٰ مُحَمَّدٍ',
     transliteration: 'Allahumma Salli Ala Muhammad',
-    meaningBn: 'হে আল্লাহ, মুহাম্মদ (সা.)-এর ওপর দরূদ বর্ষণ করুন',
+    meanings: {
+      bn: 'হে আল্লাহ, মুহাম্মদ (সা.)-এর ওপর দরূদ বর্ষণ করুন',
+      en: 'O Allah, bless Muhammad and his family',
+      hi: 'हे अल्लाह, मुहम्मद (स.) पर अपनी कृपा बरसाइए',
+      es: 'Oh Alá, bendice a Muhammad',
+      ar: 'اللهم صل وسلم على نبينا محمد',
+      de: 'O Allah, segne Muhammad'
+    },
     target: 100
   }
 ];
 
 const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
   const { language, activeThemeConfig } = useApp();
-  const t = UI_TRANSLATIONS[language];
+  const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
   
   const [count, setCount] = useState(0);
   const [target, setTarget] = useState(33);
@@ -98,7 +141,7 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
   };
 
   const handleReset = () => {
-    triggerVibrate(80);
+    triggerVibrate(50);
     setCount(0);
   };
 
@@ -109,13 +152,14 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
     triggerVibrate(30);
   };
 
+  const meaning = selectedPreset.meanings[language] || selectedPreset.meanings.en;
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6 pt-4 pb-12"
+      className="space-y-6 pt-4 pb-20 select-none"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -126,7 +170,7 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
           <div>
             <h2 className="text-2xl font-black tracking-tight">{t.tasbih}</h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              {language === 'bn' ? `রাউন্ড সম্পন্ন: ${totalLaps}` : `Laps completed: ${totalLaps}`}
+              {t.lapsCompletedText}: {totalLaps}
             </p>
           </div>
         </div>
@@ -140,11 +184,11 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
                 ? 'bg-amber-500 text-white border-amber-500 shadow-sm' 
                 : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
             }`}
-            title={language === 'bn' ? 'ফুলস্ক্রিন টাচ মোড' : 'Fullscreen Tap Mode'}
+            title={t.fullscreenTapMode}
           >
             {fullScreenTap ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             <span className="hidden sm:inline text-[10px] uppercase tracking-wider">
-              {language === 'bn' ? 'সহজ টাচ' : 'Easy Tap'}
+              {t.quickTapCount}
             </span>
           </button>
 
@@ -168,10 +212,10 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
           <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
-            {language === 'bn' ? 'যিকির নির্বাচন করুন' : 'Select Dhikr'}
+            {t.selectDhikrTitle}
           </span>
           <span className="text-[10px] font-bold text-slate-400">
-            {selectedPreset.target} {language === 'bn' ? 'বার' : 'times'}
+            {selectedPreset.target} {t.timesCount}
           </span>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
@@ -202,7 +246,7 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
           {selectedPreset.arabic}
         </p>
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-          {language === 'bn' ? selectedPreset.meaningBn : selectedPreset.transliteration}
+          {meaning}
         </p>
       </div>
 
@@ -235,7 +279,7 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
               {count >= target && (
                 <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-500 mt-1">
                   <CheckCircle2 size={12} />
-                  <span>{language === 'bn' ? 'সম্পন্ন!' : 'Done!'}</span>
+                  <span>{t.doneStatus}</span>
                 </span>
               )}
             </div>
@@ -281,7 +325,7 @@ const TasbihView: React.FC<TasbihViewProps> = ({ setActiveTab }) => {
 
         {fullScreenTap && (
           <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 animate-pulse text-center">
-            {language === 'bn' ? '👆 কার্ডের যেকোনো জায়গায় ট্যাপ করে গণনা করুন' : '👆 Tap anywhere on the card to count'}
+            {t.tapAnywhereToCount}
           </p>
         )}
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Sparkles, Copy, Check, Share2, BookOpen, Quote, Image as ImageIcon } from 'lucide-react';
+import { Sparkles, Copy, Check, Share2, BookOpen, Quote } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { DAILY_AYAH_LIST, DailyAyahItem } from '../constants';
+import { DAILY_AYAH_LIST, DailyAyahItem, UI_TRANSLATIONS, getLocalizedSurah } from '../constants';
 
 interface DailyAyahCardProps {
   onReadSurah: (surahNumber: number) => void;
@@ -17,6 +17,7 @@ interface DailyAyahCardProps {
 
 export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpenSocialCard }) => {
   const { language, activeThemeConfig } = useApp();
+  const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
   const [copied, setCopied] = useState(false);
 
   // Compute daily rotating Ayah based on day of year
@@ -26,19 +27,22 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
   const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
   const currentAyah: DailyAyahItem = DAILY_AYAH_LIST[dayOfYear % DAILY_AYAH_LIST.length] || DAILY_AYAH_LIST[0];
 
+  const localizedSurah = getLocalizedSurah(currentAyah.surahNumber, language, currentAyah.surahNameEn, currentAyah.arabic, currentAyah.english);
+  const displayedTranslation = language === 'bn' ? currentAyah.bangla : currentAyah.english;
+
   const handleCopy = () => {
-    const textToCopy = `"${currentAyah.arabic}"\n\n${language === 'bn' ? currentAyah.bangla : currentAyah.english}\n— ${currentAyah.surahNameBn} (${currentAyah.ayahNumber})`;
+    const textToCopy = `"${currentAyah.arabic}"\n\n${displayedTranslation}\n— ${localizedSurah.name} (${currentAyah.ayahNumber})`;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShare = async () => {
-    const textToShare = `"${currentAyah.arabic}"\n\n${language === 'bn' ? currentAyah.bangla : currentAyah.english}\n— ${currentAyah.surahNameBn} (${currentAyah.ayahNumber})`;
+    const textToShare = `"${currentAyah.arabic}"\n\n${displayedTranslation}\n— ${localizedSurah.name} (${currentAyah.ayahNumber})`;
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
-          title: language === 'bn' ? 'আজকের নির্বাচিত আয়াত' : 'Daily Ayah',
+          title: t.dailyAyahTitle,
           text: textToShare
         });
       } catch (err) {
@@ -68,16 +72,16 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
             </div>
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 block leading-none mb-0.5">
-                {language === 'bn' ? 'আজকের নির্বাচিত আয়াত' : 'Daily Ayah'}
+                {t.dailyAyahTitle}
               </span>
               <h4 className="text-xs font-black text-slate-800 dark:text-slate-100">
-                {language === 'bn' ? currentAyah.surahNameBn : currentAyah.surahNameEn} • {language === 'bn' ? `আয়াত ${currentAyah.ayahNumber}` : `Ayah ${currentAyah.ayahNumber}`}
+                {localizedSurah.name} • {t.ayahs} {currentAyah.ayahNumber}
               </h4>
             </div>
           </div>
 
           <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            {currentAyah.theme}
+            {t.verseOfTheDay}
           </span>
         </div>
 
@@ -91,7 +95,7 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
 
         {/* Translation */}
         <p className="text-xs sm:text-sm text-center text-slate-600 dark:text-slate-300 font-medium leading-relaxed italic max-w-lg mx-auto">
-          "{language === 'bn' ? currentAyah.bangla : currentAyah.english}"
+          "{displayedTranslation}"
         </p>
 
         {/* Actions Bar */}
@@ -102,7 +106,7 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
             style={{ backgroundColor: activeThemeConfig.primaryColor }}
           >
             <BookOpen size={14} />
-            <span>{language === 'bn' ? 'সম্পূর্ণ সূরা পড়ুন' : 'Read Surah'}</span>
+            <span>{t.readFullSurahBtn}</span>
           </button>
 
           <div className="flex items-center gap-1.5">
@@ -111,32 +115,32 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
                 onClick={() => onOpenSocialCard({
                   surahNumber: currentAyah.surahNumber,
                   ayahNumber: currentAyah.ayahNumber,
-                  surahNameBn: currentAyah.surahNameBn,
+                  surahNameBn: localizedSurah.name,
                   surahNameEn: currentAyah.surahNameEn,
                   arabicText: currentAyah.arabic,
-                  bengaliTranslation: currentAyah.bangla
+                  bengaliTranslation: displayedTranslation
                 })}
                 className="p-2 rounded-xl border border-amber-200/80 dark:border-amber-800/80 bg-amber-50/70 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:scale-105 active:scale-90 transition-all flex items-center gap-1 text-xs font-bold"
-                title="কার্ড তৈরি করুন"
+                title={t.shareCardBtn}
               >
                 <Sparkles size={14} className="text-amber-500" />
-                <span className="hidden sm:inline">কার্ড বানান</span>
+                <span className="hidden sm:inline">{t.shareCardBtn}</span>
               </button>
             )}
 
             <button
               onClick={handleCopy}
               className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-90 transition-all flex items-center gap-1.5 text-xs font-bold"
-              title="Copy verse"
+              title={t.copyTextBtn}
             >
               {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-              <span className="hidden sm:inline">{copied ? (language === 'bn' ? 'কপি হয়েছে' : 'Copied') : (language === 'bn' ? 'কপি' : 'Copy')}</span>
+              <span className="hidden sm:inline">{copied ? t.copied : t.copyTextBtn}</span>
             </button>
 
             <button
               onClick={handleShare}
               className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-90 transition-all text-xs font-bold"
-              title="Share verse"
+              title={t.shareBtn}
             >
               <Share2 size={14} />
             </button>

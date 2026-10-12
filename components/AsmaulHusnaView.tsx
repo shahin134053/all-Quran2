@@ -5,6 +5,7 @@ import {
   Sparkles, Award, Star, Info, Share2, Copy, Check
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { AppLanguage } from '../types';
 
 export interface AllahName {
   id: number;
@@ -14,6 +15,141 @@ export interface AllahName {
   meaningBn: string;
   explanationBn: string;
 }
+
+const ASMA_LOCALES: Record<AppLanguage, {
+  title: string;
+  subtitle: string;
+  badge: string;
+  hadithBadge: string;
+  hadithText: string;
+  hadithRef: string;
+  progressText: string;
+  searchPlaceholder: string;
+  clearText: string;
+  allTab: string;
+  memorizedTab: string;
+  remainingTab: string;
+  meaningPrefix: string;
+  listenTooltip: string;
+  copyTooltip: string;
+  markMemorized: string;
+  memorizedDone: string;
+}> = {
+  bn: {
+    title: 'আসমাউল হুসনা',
+    subtitle: 'আল্লাহর ৯৯টি পবিত্র নাম, অর্থ ও ফযিলত',
+    badge: '৯৯টি নাম',
+    hadithBadge: 'সহীহ বুখারী ও মুসলিমের সুসংবাদ',
+    hadithText: '"নিশ্চয় আল্লাহর ৯৯টি নাম রয়েছে। যে ব্যক্তি এগুলো মুখস্থ করবে ও বিশ্বাস রাখবে, সে জান্নাতে প্রবেশ করবে।"',
+    hadithRef: '(সহীহ বুখারী: ২৭৩৬, সহীহ মুসলিম: ২৬৭৭)',
+    progressText: 'মুখস্থ অগ্রগতি',
+    searchPlaceholder: 'পবিত্র নাম বা অর্থ খুঁজুন (যেমন: আর-রহমান, পরম দয়ালু)...',
+    clearText: 'মুছুন',
+    allTab: 'সবগুলো',
+    memorizedTab: 'মুখস্থ',
+    remainingTab: 'বাকি আছে',
+    meaningPrefix: 'অর্থ: ',
+    listenTooltip: 'উচ্চারণ শুনুন',
+    copyTooltip: 'কপি করুন',
+    markMemorized: 'মুখস্থ মার্ক করুন',
+    memorizedDone: 'মুখস্থ সম্পন্ন'
+  },
+  en: {
+    title: 'Asmaul Husna',
+    subtitle: '99 Beautiful Names of Allah, Meanings & Virtues',
+    badge: '99 Names',
+    hadithBadge: 'Glad Tidings from Sahih Bukhari & Muslim',
+    hadithText: '"Indeed, Allah has 99 names. Whoever memorizes and acts upon them will enter Paradise."',
+    hadithRef: '(Sahih Bukhari: 2736, Sahih Muslim: 2677)',
+    progressText: 'Memorization Progress',
+    searchPlaceholder: 'Search name or meaning (e.g., Ar-Rahman, Most Merciful)...',
+    clearText: 'Clear',
+    allTab: 'All',
+    memorizedTab: 'Memorized',
+    remainingTab: 'Remaining',
+    meaningPrefix: 'Meaning: ',
+    listenTooltip: 'Listen Recitation',
+    copyTooltip: 'Copy',
+    markMemorized: 'Mark as Memorized',
+    memorizedDone: 'Memorized'
+  },
+  hi: {
+    title: 'अस्माउल हुस्ना',
+    subtitle: 'अल्लाह के 99 पवित्र नाम, अर्थ और फ़ज़ीलत',
+    badge: '99 नाम',
+    hadithBadge: 'सहीह बुख़ारी और मुस्लिम की शुभ सूचना',
+    hadithText: '"बेशक अल्लाह के 99 नाम हैं। जो व्यक्ति इन्हें याद रखेगा और विश्वास रखेगा, वह जन्नत में प्रवेश करेगा।"',
+    hadithRef: '(सहीह बुख़ारी: 2736, सहीह मुस्लिम: 2677)',
+    progressText: 'याद करने की प्रगति',
+    searchPlaceholder: 'पवित्र नाम या अर्थ खोजें (जैसे: अर-रहमान, परम दयालु)...',
+    clearText: 'हटाएँ',
+    allTab: 'सभी',
+    memorizedTab: 'कंठस्थ',
+    remainingTab: 'शेष',
+    meaningPrefix: 'अर्थ: ',
+    listenTooltip: 'उच्चारण सुनें',
+    copyTooltip: 'कॉपी करें',
+    markMemorized: 'कंठस्थ चिह्नित करें',
+    memorizedDone: 'कंठस्थ पूर्ण'
+  },
+  es: {
+    title: 'Asmaul Husna',
+    subtitle: 'Los 99 Bellos Nombres de Alá, Significados y Virtudes',
+    badge: '99 Nombres',
+    hadithBadge: 'Buenas Nuevas de Sahih Bujari y Muslim',
+    hadithText: '"Ciertamente Alá tiene 99 nombres. Quien los memorice y crea en ellos entrará al Paraíso."',
+    hadithRef: '(Sahih Al-Bujari: 2736, Sahih Muslim: 2677)',
+    progressText: 'Progreso de memorización',
+    searchPlaceholder: 'Buscar nombre o significado (ej. Ar-Rahman, Misericordioso)...',
+    clearText: 'Borrar',
+    allTab: 'Todos',
+    memorizedTab: 'Memorizados',
+    remainingTab: 'Restantes',
+    meaningPrefix: 'Significado: ',
+    listenTooltip: 'Escuchar pronunciación',
+    copyTooltip: 'Copiar',
+    markMemorized: 'Marcar como memorizado',
+    memorizedDone: 'Completado'
+  },
+  ar: {
+    title: 'أسماء الله الحسنى',
+    subtitle: '٩٩ اسمًا من أسماء الله الحسنى ومعانيها وفضائلها',
+    badge: '٩٩ اسمًا',
+    hadithBadge: 'بشارة صحيحي البخاري ومسلم',
+    hadithText: '«إِنَّ لِلَّهِ تِسْعَةً وَتِسْعِينَ اسْمًا، مِائَةً إِلَّا وَاحِدًا، مَنْ أَحْصَاهَا دَخَلَ الجَنَّةَ»',
+    hadithRef: '(صحيح البخاري: ٢٧٣٦، صحيح مسلم: ٢٦٧٧)',
+    progressText: 'تقدم الحفظ',
+    searchPlaceholder: 'ابحث عن اسم أو معنى (مثل: الرحمن، الرحيم)...',
+    clearText: 'مسح',
+    allTab: 'الكل',
+    memorizedTab: 'المحفوظة',
+    remainingTab: 'المتبقية',
+    meaningPrefix: 'المعنى: ',
+    listenTooltip: 'استماع النطق',
+    copyTooltip: 'نسخ',
+    markMemorized: 'تحديد كمحفوظ',
+    memorizedDone: 'تم الحفظ'
+  },
+  de: {
+    title: 'Asmaul Husna',
+    subtitle: 'Die 99 schönsten Namen Allahs, Bedeutungen & Vorzüge',
+    badge: '99 Namen',
+    hadithBadge: 'Frohe Botschaft aus Sahih Al-Bukhari & Muslim',
+    hadithText: '"Wahrlich, Allah hat 99 Namen. Wer sie auswendig lernt und danach handelt, wird das Paradies betreten."',
+    hadithRef: '(Sahih Al-Bukhari: 2736, Sahih Muslim: 2677)',
+    progressText: 'Auswendiglern-Fortschritt',
+    searchPlaceholder: 'Namen oder Bedeutung suchen (z. B. Ar-Rahman, Allerbarmer)...',
+    clearText: 'Löschen',
+    allTab: 'Alle',
+    memorizedTab: 'Gelernt',
+    remainingTab: 'Verbleibend',
+    meaningPrefix: 'Bedeutung: ',
+    listenTooltip: 'Aussprache anhören',
+    copyTooltip: 'Kopieren',
+    markMemorized: 'Als gelernt markieren',
+    memorizedDone: 'Gelernt'
+  }
+};
 
 export const ALLAH_99_NAMES: AllahName[] = [
   { id: 1, arabic: 'الرَّحْمَنُ', transliterationBn: 'আর-রহমান', transliterationEn: 'Ar-Rahmaan', meaningBn: 'পরম দয়ালু', explanationBn: 'যাঁর অসীম ও সার্বজনীন দয়া সমগ্র সৃষ্টিজগৎকে পরিবেষ্টন করে রেখেছে।' },
@@ -122,7 +258,8 @@ interface AsmaulHusnaViewProps {
 }
 
 export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }) => {
-  const { activeThemeConfig } = useApp();
+  const { language, activeThemeConfig } = useApp();
+  const t = ASMA_LOCALES[language] || ASMA_LOCALES.en;
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'memorized' | 'remaining'>('all');
   const [playingId, setPlayingId] = useState<number | null>(null);
@@ -216,16 +353,16 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
           </button>
           <div>
             <h2 className="text-xl font-black tracking-tight text-slate-800 dark:text-slate-100">
-              আসমাউল হুসনা
+              {t.title}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">
-              আল্লাহর ৯৯টি পবিত্র নাম, অর্থ ও ফযিলত
+              {t.subtitle}
             </p>
           </div>
         </div>
 
         <span className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-xs font-black rounded-full border border-amber-200/50">
-          ৯৯টি নাম
+          {t.badge}
         </span>
       </div>
 
@@ -240,21 +377,21 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-amber-300" />
             <span className="text-[10px] font-black uppercase tracking-widest text-amber-200">
-              সহীহ বুখারী ও মুসলিমের সুসংবাদ
+              {t.hadithBadge}
             </span>
           </div>
           <h3 className="text-base font-black leading-snug">
-            "নিশ্চয় আল্লাহর ৯৯টি নাম রয়েছে। যে ব্যক্তি এগুলো মুখস্থ করবে ও বিশ্বাস রাখবে, সে জান্নাতে প্রবেশ করবে।"
+            {t.hadithText}
           </h3>
           <p className="text-[11px] text-white/80 font-medium">
-            (সহীহ বুখারী: ২৭৩৬, সহীহ মুসলিম: ২৬৭৭)
+            {t.hadithRef}
           </p>
         </div>
 
         {/* Progress Bar */}
         <div className="pt-2 border-t border-white/10 relative z-10 space-y-2">
           <div className="flex justify-between items-center text-xs font-bold">
-            <span className="text-amber-200">মুখস্থ অগ্রগতি: {memorizedCount}/৯৯</span>
+            <span className="text-amber-200">{t.progressText}: {memorizedCount}/99</span>
             <span className="text-white font-black">{memorizedPercent}%</span>
           </div>
           <div className="w-full bg-black/20 h-2.5 rounded-full overflow-hidden p-0.5">
@@ -272,7 +409,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="পবিত্র নাম বা অর্থ খুঁজুন (যেমন: আর-রহমান, পরম দয়ালু)..."
+          placeholder={t.searchPlaceholder}
           className="w-full pl-12 pr-4 py-3.5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700 text-sm font-semibold placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
         <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -281,7 +418,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
             onClick={() => setSearchQuery('')}
             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
           >
-            মুছুন
+            {t.clearText}
           </button>
         )}
       </div>
@@ -289,9 +426,9 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
       {/* Filter Tabs */}
       <div className="flex items-center gap-2">
         {[
-          { id: 'all', label: `সবগুলো (৯৯)` },
-          { id: 'memorized', label: `মুখস্থ (${memorizedCount})` },
-          { id: 'remaining', label: `বাকি আছে (${99 - memorizedCount})` },
+          { id: 'all', label: `${t.allTab} (99)` },
+          { id: 'memorized', label: `${t.memorizedTab} (${memorizedCount})` },
+          { id: 'remaining', label: `${t.remainingTab} (${99 - memorizedCount})` },
         ].map(tab => (
           <button
             key={tab.id}
@@ -333,7 +470,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleSpeak(name)}
-                    title="উচ্চারণ শুনুন"
+                    title={t.listenTooltip}
                     className={`p-2 rounded-xl transition-all ${
                       playingId === name.id 
                         ? 'bg-emerald-600 text-white animate-pulse' 
@@ -345,7 +482,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
 
                   <button
                     onClick={() => handleCopy(name)}
-                    title="কপি করুন"
+                    title={t.copyTooltip}
                     className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-emerald-600 rounded-xl transition-colors"
                   >
                     {copiedId === name.id ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
@@ -353,7 +490,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
 
                   <button
                     onClick={() => toggleMemorized(name.id)}
-                    title={isMemorized ? 'মুখস্থ সম্পন্ন' : 'মুখস্থ মার্ক করুন'}
+                    title={isMemorized ? t.memorizedDone : t.markMemorized}
                     className={`p-2 rounded-xl transition-all ${
                       isMemorized
                         ? 'bg-emerald-600 text-white shadow-sm'
@@ -378,10 +515,10 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
               {/* Bengali Name & Meaning */}
               <div className="space-y-1">
                 <h4 className="text-base font-black text-slate-800 dark:text-slate-100">
-                  {name.transliterationBn}
+                  {language === 'bn' ? name.transliterationBn : name.transliterationEn}
                 </h4>
                 <p className="text-xs font-black text-emerald-700 dark:text-emerald-400">
-                  অর্থ: {name.meaningBn}
+                  {t.meaningPrefix}{name.meaningBn}
                 </p>
               </div>
 
