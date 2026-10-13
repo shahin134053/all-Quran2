@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Copy, Check, Share2, BookOpen, Quote, Volume2 } from 'lucide-react';
+import { Sparkles, Copy, Check, Share2, BookOpen, Quote, Volume2, VolumeX, Languages } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { playAudioText, stopAllAudio } from '../utils/audioHelper';
 import { DAILY_AYAH_LIST, DailyAyahItem, UI_TRANSLATIONS, getLocalizedSurah } from '../constants';
@@ -20,7 +20,8 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
   const { language, activeThemeConfig } = useApp();
   const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
   const [copied, setCopied] = useState(false);
-  const [isPlayingTranslation, setIsPlayingTranslation] = useState(false);
+  const [playingStage, setPlayingStage] = useState<'arabic' | 'translation' | null>(null);
+  const [cardLang, setCardLang] = useState<'bn' | 'en'>(language === 'en' ? 'en' : 'bn');
 
   // Compute daily rotating Ayah based on day of year
   const now = new Date();
@@ -29,22 +30,37 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
   const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
   const currentAyah: DailyAyahItem = DAILY_AYAH_LIST[dayOfYear % DAILY_AYAH_LIST.length] || DAILY_AYAH_LIST[0];
 
-  const localizedSurah = getLocalizedSurah(currentAyah.surahNumber, language, currentAyah.surahNameEn, currentAyah.arabic, currentAyah.english);
-  const displayedTranslation = language === 'bn' ? currentAyah.bangla : currentAyah.english;
+  const localizedSurah = getLocalizedSurah(currentAyah.surahNumber, cardLang, currentAyah.surahNameEn, currentAyah.arabic, currentAyah.english);
+  const displayedTranslation = cardLang === 'bn' ? currentAyah.bangla : currentAyah.english;
 
-  const handleSpeakTranslation = () => {
-    if (isPlayingTranslation) {
+  const handleSpeakAudio = () => {
+    if (playingStage) {
       stopAllAudio();
-      setIsPlayingTranslation(false);
+      setPlayingStage(null);
       return;
     }
 
-    setIsPlayingTranslation(true);
-    const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : (language === 'es' ? 'es' : 'en'));
+    setPlayingStage('arabic');
+    const paddedSurah = String(currentAyah.surahNumber).padStart(3, '0');
+    const paddedAyah = String(currentAyah.ayahNumber).padStart(3, '0');
+    const ayahAudioUrl = `https://everyayah.com/data/Alafasy_128kbps/${paddedSurah}${paddedAyah}.mp3`;
 
-    playAudioText(displayedTranslation, targetLang, {
-      onEnd: () => setIsPlayingTranslation(false),
-      onError: () => setIsPlayingTranslation(false)
+    // 1. Play Arabic recitation first
+    playAudioText(currentAyah.arabic, 'ar', {
+      directUrl: ayahAudioUrl,
+      onEnd: () => {
+        // 2. Play translation in selected language immediately after Arabic completes
+        setPlayingStage('translation');
+        setTimeout(() => {
+          playAudioText(displayedTranslation, cardLang, {
+            onEnd: () => setPlayingStage(null),
+            onError: () => setPlayingStage(null)
+          });
+        }, 350);
+      },
+      onError: () => {
+        setPlayingStage(null);
+      }
     });
   };
 
@@ -127,18 +143,33 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
             <span>{t.readFullSurahBtn}</span>
           </button>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Sequential Audio Button (Arabic recitation first, then translation speech) */}
             <button
-              onClick={handleSpeakTranslation}
-              className={`p-2 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-bold ${
-                isPlayingTranslation
-                  ? 'border-emerald-500 bg-emerald-500 text-white animate-pulse shadow-md'
-                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 active:scale-90'
+              onClick={handleSpeakAudio}
+              className={`p-2 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-bold active:scale-90 ${
+                playingStage
+                  ? 'border-emerald-500 bg-emerald-500 text-white animate-pulse shadow-md ring-2 ring-emerald-300'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600'
               }`}
-              title={language === 'bn' ? 'অনুবাদ অর্থ শুনুন' : 'Listen Translation'}
+              title={playingStage ? "অডিও বন্ধ করুন" : "প্রথমে আরবি তিলাওয়াত ও পরে অনুবাদ শুনুন"}
             >
-              <Volume2 size={14} />
-              <span className="hidden sm:inline">{language === 'bn' ? 'অর্থ শুনুন' : 'Listen'}</span>
+              {playingStage ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              <span className="hidden sm:inline">
+                {playingStage === 'arabic' ? 'আরবি বাজছে...' : playingStage === 'translation' ? 'অনুবাদ বাজছে...' : 'প্লে অডিও'}
+              </span>
+            </button>
+
+            {/* Translate Button: Toggle between বাংলা and English */}
+            <button
+              onClick={() => setCardLang(prev => prev === 'bn' ? 'en' : 'bn')}
+              className="p-2 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 active:scale-90 transition-all flex items-center gap-1 text-xs font-bold"
+              title="অনুবাদ পরিবর্তন (বাংলা / English)"
+            >
+              <Languages size={14} className="text-emerald-600 dark:text-emerald-400" />
+              <span className="font-black text-emerald-700 dark:text-emerald-300">
+                {cardLang === 'bn' ? 'বাংলা' : 'EN'}
+              </span>
             </button>
 
             {onOpenSocialCard && (

@@ -1,5 +1,5 @@
 export const CURRENT_APP_VERSION = '2.0.0';
-export const GITHUB_REPO = 'shahinprpl-sketch/quran-app';
+export const GITHUB_REPO = 'shahin134053/quran-app';
 
 export interface UpdateInfo {
   hasUpdate: boolean;

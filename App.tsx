@@ -32,6 +32,7 @@ import { AsmaulHusnaView } from './components/AsmaulHusnaView';
 import { ZakatCalculatorView } from './components/ZakatCalculatorView';
 import { FridayJummahHub } from './components/FridayJummahHub';
 import { NearbyMosquesView } from './components/NearbyMosquesView';
+import { PrayerDuaCard } from './components/PrayerDuaCard';
 import { AyahSocialCardModal, AyahCardData } from './components/AyahSocialCardModal';
 import { AnimatedSplashScreen } from './components/AnimatedSplashScreen';
 import { AppIcon } from './components/AppIcon';
@@ -1644,25 +1645,12 @@ const AppContent: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Dua */}
+                        {/* Daily Waqt Dua with Audio & Translate */}
                         {PRAYER_DUAS[p.key as keyof typeof PRAYER_DUAS] && (
-                          <div className="bg-emerald-50/50 dark:bg-emerald-900/10 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-900/20">
-                            <div className="flex items-center gap-2 mb-3">
-                              <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg text-emerald-600">
-                                <Quote size={14} />
-                              </div>
-                              <h4 className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-400 tracking-widest">Recommended Dua</h4>
-                            </div>
-                            <p className="font-arabic text-xl text-center leading-loose text-slate-800 dark:text-slate-100 mb-4 drop-shadow-sm">
-                              {PRAYER_DUAS[p.key as keyof typeof PRAYER_DUAS].arabic}
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 italic text-center mb-2 font-medium">
-                              "{PRAYER_DUAS[p.key as keyof typeof PRAYER_DUAS].transliteration}"
-                            </p>
-                            <p className="text-xs text-slate-600 dark:text-slate-300 text-center font-bold">
-                              {PRAYER_DUAS[p.key as keyof typeof PRAYER_DUAS].translation}
-                            </p>
-                          </div>
+                          <PrayerDuaCard 
+                            duaKey={p.label} 
+                            dua={PRAYER_DUAS[p.key as keyof typeof PRAYER_DUAS]} 
+                          />
                         )}
                       </div>
                     </motion.div>

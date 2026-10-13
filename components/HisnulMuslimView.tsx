@@ -13,9 +13,13 @@ export interface DuaItem {
   id: string;
   category: string;
   titleBn: string;
+  titleEn?: string;
   arabic: string;
   pronunciationBn: string;
+  pronunciationEn?: string;
   meaningBn: string;
+  meaningEn?: string;
+  meaningHi?: string;
   virtueBn: string;
   reference: string;
   repeatTarget?: number;
@@ -280,53 +284,97 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
 
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
+  // Language selection per dua (default to app language or 'bn')
+  const defaultLang: 'bn' | 'en' | 'hi' = (language === 'en' || language === 'hi') ? language : 'bn';
+  const [duaLangs, setDuaLangs] = useState<Record<string, 'bn' | 'en' | 'hi'>>({});
+
+  const getDuaLanguage = (duaId: string): 'bn' | 'en' | 'hi' => {
+    return duaLangs[duaId] || defaultLang;
+  };
+
+  const cycleDuaLanguage = (duaId: string) => {
+    const current = getDuaLanguage(duaId);
+    const order: Array<'bn' | 'en' | 'hi'> = ['bn', 'en', 'hi'];
+    const next = order[(order.indexOf(current) + 1) % order.length];
+    setDuaLangs(prev => ({ ...prev, [duaId]: next }));
+  };
+
+  const getLocalizedMeaning = (dua: DuaItem, lang: 'bn' | 'en' | 'hi') => {
+    if (lang === 'en' && dua.meaningEn) return dua.meaningEn;
+    if (lang === 'hi' && dua.meaningHi) return dua.meaningHi;
+    return dua.meaningBn;
+  };
+
+  const getLocalizedTitle = (dua: DuaItem, lang: 'bn' | 'en' | 'hi') => {
+    if (lang === 'en' && dua.titleEn) return dua.titleEn;
+    return dua.titleBn;
+  };
+
   const stopActiveAudio = () => {
     stopAllAudio();
     setPlayingId(null);
     setPlayingType(null);
   };
 
-  const handleSpeak = (dua: DuaItem, type: 'arabic' | 'meaning' = 'arabic') => {
-    if (playingId === dua.id && playingType === type) {
+  const handleSpeak = (dua: DuaItem, type: 'sequential' | 'arabic' | 'meaning' = 'sequential') => {
+    if (playingId === dua.id && (playingType === type || (type === 'sequential' && (playingType === 'arabic' || playingType === 'meaning')))) {
       stopActiveAudio();
       return;
     }
 
-    setPlayingId(dua.id);
-    setPlayingType(type);
+    const currentDuaLang = getDuaLanguage(dua.id);
+    const localizedTitle = getLocalizedTitle(dua, currentDuaLang);
+    const localizedMeaning = getLocalizedMeaning(dua, currentDuaLang);
 
-    if (type === 'arabic') {
-      const onArabicFinished = () => {
-        if (autoPlayMeaning) {
-          setTimeout(() => {
-            const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : 'en');
-            playAudioText(
-              `${dua.titleBn}। অর্থ: ${dua.meaningBn}`,
-              targetLang,
-              {
-                onEnd: () => {
-                  setPlayingId(null);
-                  setPlayingType(null);
-                },
-                onError: () => {
-                  setPlayingId(null);
-                  setPlayingType(null);
-                }
-              }
-            );
-          }, 400);
-        } else {
-          setPlayingId(null);
-          setPlayingType(null);
-        }
-      };
+    if (type === 'sequential') {
+      setPlayingId(dua.id);
+      setPlayingType('arabic');
 
+      // 1. Play Arabic recitation first
       playAudioText(
         dua.arabic,
         'ar',
         {
           directUrl: dua.audioUrl,
-          onEnd: onArabicFinished,
+          onEnd: () => {
+            // 2. Play translation in selected language immediately after Arabic completes
+            setPlayingType('meaning');
+            setTimeout(() => {
+              const speechText = `${localizedTitle}। অর্থ: ${localizedMeaning}`;
+              playAudioText(
+                speechText,
+                currentDuaLang,
+                {
+                  onEnd: () => {
+                    setPlayingId(null);
+                    setPlayingType(null);
+                  },
+                  onError: () => {
+                    setPlayingId(null);
+                    setPlayingType(null);
+                  }
+                }
+              );
+            }, 350);
+          },
+          onError: () => {
+            setPlayingId(null);
+            setPlayingType(null);
+          }
+        }
+      );
+    } else if (type === 'arabic') {
+      setPlayingId(dua.id);
+      setPlayingType('arabic');
+      playAudioText(
+        dua.arabic,
+        'ar',
+        {
+          directUrl: dua.audioUrl,
+          onEnd: () => {
+            setPlayingId(null);
+            setPlayingType(null);
+          },
           onError: () => {
             setPlayingId(null);
             setPlayingType(null);
@@ -334,10 +382,12 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
         }
       );
     } else {
-      const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : 'en');
+      setPlayingId(dua.id);
+      setPlayingType('meaning');
+      const speechText = `অর্থ: ${localizedMeaning}`;
       playAudioText(
-        `${dua.titleBn}। অর্থ: ${dua.meaningBn}`,
-        targetLang,
+        speechText,
+        currentDuaLang,
         {
           onEnd: () => {
             setPlayingId(null);
@@ -494,33 +544,35 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
                   </h3>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Play Arabic Audio */}
+                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                  {/* Play Audio Button: Arabic First, then Translation sequentially */}
                   <button
-                    onClick={() => handleSpeak(dua, 'arabic')}
-                    title="আরবি তিলাওয়াত শুনুন"
-                    className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
-                      playingId === dua.id && playingType === 'arabic'
-                        ? 'bg-emerald-600 text-white animate-pulse shadow-md' 
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-600'
+                    onClick={() => handleSpeak(dua, 'sequential')}
+                    title="প্রথমে আরবি তিলাওয়াত ও পরে অনুবাদ অডিও শুনুন"
+                    className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-black shadow-sm active:scale-95 ${
+                      playingId === dua.id
+                        ? 'bg-emerald-600 text-white animate-pulse shadow-md ring-2 ring-emerald-400' 
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     }`}
                   >
-                    <Volume2 size={15} />
-                    <span className="hidden sm:inline">আরবি</span>
+                    {playingId === dua.id ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                    <span>
+                      {playingId === dua.id
+                        ? (playingType === 'arabic' ? 'আরবি বাজছে...' : 'অনুবাদ বাজছে...')
+                        : 'প্লে অডিও'}
+                    </span>
                   </button>
 
-                  {/* Play Translated Meaning Audio */}
+                  {/* Translate Button: Cycles between বাংলা, English, and हिन्दी */}
                   <button
-                    onClick={() => handleSpeak(dua, 'meaning')}
-                    title="বাংলা অর্থ শুনুন"
-                    className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
-                      playingId === dua.id && playingType === 'meaning'
-                        ? 'bg-amber-600 text-white animate-pulse shadow-md' 
-                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200/60 dark:border-amber-800/40'
-                    }`}
+                    onClick={() => cycleDuaLanguage(dua.id)}
+                    title="অনুবাদ ভাষা পরিবর্তন করুন (বাংলা / English / हिन्दी)"
+                    className="px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 hover:border-emerald-500 shadow-sm active:scale-95"
                   >
-                    <Languages size={15} />
-                    <span className="hidden sm:inline">অর্থ</span>
+                    <Languages size={15} className="text-emerald-600 dark:text-emerald-400" />
+                    <span className="font-black text-emerald-700 dark:text-emerald-300">
+                      {getDuaLanguage(dua.id) === 'bn' ? 'বাংলা' : getDuaLanguage(dua.id) === 'en' ? 'EN' : 'हिन्दी'}
+                    </span>
                   </button>
 
                   <button
@@ -558,11 +610,11 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
                 </p>
               </div>
 
-              {/* Bengali Meaning */}
+              {/* Meaning with language badge and listen meaning button */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 text-xs space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
-                    বাংলা অর্থ:
+                    অনুবাদ ({getDuaLanguage(dua.id) === 'bn' ? 'বাংলা' : getDuaLanguage(dua.id) === 'en' ? 'English' : 'हिन्दी'}):
                   </span>
                   <button
                     onClick={() => handleSpeak(dua, 'meaning')}
@@ -577,7 +629,7 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
                   </button>
                 </div>
                 <p className="text-slate-800 dark:text-slate-200 font-bold leading-relaxed">
-                  {dua.meaningBn}
+                  {getLocalizedMeaning(dua, getDuaLanguage(dua.id))}
                 </p>
               </div>
 

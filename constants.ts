@@ -32,31 +32,85 @@ export const PRAYER_RAKATS = {
   ]
 };
 
-export const PRAYER_DUAS = {
+export interface PrayerDuaDetail {
+  arabic: string;
+  transliteration: string;
+  translation: string;
+  translations: {
+    bn: string;
+    en: string;
+    hi: string;
+  };
+  titleBn: string;
+  titleEn: string;
+  reference: string;
+}
+
+export const PRAYER_DUAS: Record<string, PrayerDuaDetail> = {
   Fajr: {
+    titleBn: "ফজরের নামাজের পর বরকতময় দু'আ",
+    titleEn: "Fajr Prayer Recommended Dua",
     arabic: "اللَّهُمَّ إِنِّي أَسْأَلُكَ عِلْمًا نَافِعًا، وَرِزْقًا طَيِّبًا، وَعَمَلاً مُتَقَبَّلاً",
     transliteration: "Allahumma inni as'aluka 'ilman nafi'an, wa rizqan tayyiban, wa 'amalan mutaqabbalan",
-    translation: "O Allah, I ask You for beneficial knowledge, good provision, and acceptable deeds."
+    translation: "হে আল্লাহ! আমি আপনার কাছে উপকারী জ্ঞান, পবিত্র রিযিক এবং কবুলযোগ্য আমল প্রার্থনা করছি।",
+    translations: {
+      bn: "হে আল্লাহ! আমি আপনার কাছে উপকারী জ্ঞান, পবিত্র রিযিক এবং কবুলযোগ্য আমল প্রার্থনা করছি।",
+      en: "O Allah, I ask You for beneficial knowledge, good provision, and acceptable deeds.",
+      hi: "ऐ अल्लाह! मैं तुझसे लाभदायक ज्ञान, हलाल रोज़ी और कुबूल होने वाले अमल की दरख्वास्त करता हूँ।"
+    },
+    reference: "সুনানে ইবনে মাজাহ: ৯২৫, মুসনাদে আহমাদ: ২৬৫২১"
   },
   Dhuhr: {
+    titleBn: "যোহরের নামাজের পর ক্ষমা প্রার্থনার দু'আ",
+    titleEn: "Dhuhr Prayer Recommended Dua",
     arabic: "اللَّهُمَّ اغْفِرْ لِي ذَنْبِي كُلَّهُ، دِقَّهُ وَجِلَّهُ، وَأَوَّلَهُ وَآخِرَهُ وَعَلَانِيَتَهُ وَسِرَّهُ",
     transliteration: "Allahumma-ghfir li dhanbi kullahu, diqqahu wa jillahu, wa awwalahu wa akhirahu wa 'alaniyatahu wa sirrahu",
-    translation: "O Allah! Forgive all my sins, the small and great, the first and the last, the open and the secret."
+    translation: "হে আল্লাহ! আমার সমস্ত গুনাহ ক্ষমা করুন—ছোট ও বড়, প্রথম ও শেষ, প্রকাশ্য ও গোপন।",
+    translations: {
+      bn: "হে আল্লাহ! আমার সমস্ত গুনাহ ক্ষমা করুন—ছোট ও বড়, প্রথম ও শেষ, প্রকাশ্য ও গোপন।",
+      en: "O Allah! Forgive all my sins, the small and great, the first and the last, the open and the secret.",
+      hi: "ऐ अल्लाह! मेरे तमाम गुनाह माफ़ फरमा, छोटे और बड़े, पहले और पिछले, ज़ाहिर और पोशीदा।"
+    },
+    reference: "সহীহ মুসলিম: ৪৮৩"
   },
   Asr: {
+    titleBn: "আসর পরবর্তী ক্ষমা ও তওবার দু'আ",
+    titleEn: "Asr Prayer Recommended Dua",
     arabic: "أَسْتَغْفِرُ اللَّهَ الَّذِي لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ وَأَتُوبُ إِلَيْهِ",
     transliteration: "Astaghfirullah-alladhi la ilaha illa Huwal-Hayyul-Qayyum, wa atubu ilaih",
-    translation: "I seek the forgiveness of Allah the Almighty, whom there is none worthy of worship except Him, The Living, The Eternal, and I turn to Him in repentance."
+    translation: "আমি ক্ষমা প্রার্থনা করছি আল্লাহর কাছে, যিনি ছাড়া কোনো সত্য ইলাহ নেই, যিনি চিরঞ্জীব ও সবকিছুর ধারক; এবং আমি তাঁরই কাছে তওবা করছি।",
+    translations: {
+      bn: "আমি ক্ষমা প্রার্থনা করছি আল্লাহর কাছে, যিনি ছাড়া কোনো সত্য ইলাহ নেই, যিনি চিরঞ্জীব ও সবকিছুর ধারক; এবং আমি তাঁরই কাছে তওবা করছি।",
+      en: "I seek the forgiveness of Allah, whom there is no deity except Him, The Living, The Sustainer, and I repent to Him.",
+      hi: "मैं अल्लाह से बख्शिश मांगता हूँ जिसके सिवा कोई माबूद नहीं, जो ज़िंदा और सबको संभालने वाला है, और उसी की तरफ तौबा करता हूँ।"
+    },
+    reference: "সুনানে আবু দাউদ: ১৫১৭, জামে তিরমিযী: ৩৫৭৭"
   },
   Maghrib: {
+    titleBn: "মাগরিব পরবর্তী হিফাজত ও মাগফিরাতের দু'আ",
+    titleEn: "Maghrib Prayer Recommended Dua",
     arabic: "اللَّهُمَّ إِنَّ هَذَا إِقْبَالُ لَيْلِكَ، وَإِدْبَارُ نَهَارِكَ، وَأَصْوَاتُ دُعَاتِكَ، فَاغْفِرْ لِي",
     transliteration: "Allahumma inna hadha iqbalu laylika, wa idbaru naharika, wa aswatu du'atika, faghfir li",
-    translation: "O Allah, this is the approach of Your night, the departure of Your day, and the voices of Your callers, so forgive me."
+    translation: "হে আল্লাহ! এটি আপনার রাতের আগমন, আপনার দিনের প্রস্থান এবং আপনার আহ্বানকারীদের কণ্ঠস্বর; অতএব আমাকে ক্ষমা করুন।",
+    translations: {
+      bn: "হে আল্লাহ! এটি আপনার রাতের আগমন, আপনার দিনের প্রস্থান এবং আপনার আহ্বানকারীদের কণ্ঠস্বর; অতএব আমাকে ক্ষমা করুন।",
+      en: "O Allah, this is the approach of Your night, the departure of Your day, and the voices of Your callers, so forgive me.",
+      hi: "ऐ अल्लाह! यह तेरी रात की आमद है और तेरे दिन की रुखसत और तेरे पुकारने वालों की आवाजें हैं, पस मुझे बख्श दे।"
+    },
+    reference: "সুনানে আবু দাউদ: ৫৩০, জামে তিরমিযী: ৩৫৮০"
   },
   Isha: {
+    titleBn: "ইশার পর রাত্রিবেলার নিরাপত্তা ও মাগফিরাতের দু'আ",
+    titleEn: "Isha Prayer Recommended Dua",
     arabic: "بِسْمِ اللَّهِ وَضَعْتُ جَنْبِي، اللَّهُمَّ اغْفِرْ لِي ذَنْبِي، وَاخْسَأْ شَيْطَانِي، وَفُكَّ رِهَانِي، وَاجْعَلْنِي فِي النَّدِيِّ الْأَعْلَى",
     transliteration: "Bismillahi wada'tu janbi, Allahumma-ghfir li dhanbi, wa akhsa' shaytani, wa fukka rihani, waj'alni fin-nadiyyil-a'la",
-    translation: "In the name of Allah I lay down my side. O Allah, forgive my sin, drive away my devil, free me from my responsibility, and place me in the highest assembly."
+    translation: "আল্লাহর নামে আমি আমার পার্শ্বদেশ শয়ন করালাম। হে আল্লাহ! আমার পাপ ক্ষমা করুন, আমার শয়তানকে বিতাড়িত করুন, আমার বন্ধন মুক্ত করুন এবং আমাকে উচ্চ মর্যাদাসম্পন্ন সমাবেশে স্থান দিন।",
+    translations: {
+      bn: "আল্লাহর নামে আমি আমার পার্শ্বদেশ শয়ন করালাম। হে আল্লাহ! আমার পাপ ক্ষমা করুন, আমার শয়তানকে বিতাড়িত করুন, আমার বন্ধন মুক্ত করুন এবং আমাকে উচ্চ মর্যাদাসম্পন্ন সমাবেশে স্থান দিন।",
+      en: "In the name of Allah I lay down my side. O Allah, forgive my sin, repel my devil, free my burden, and place me in the highest assembly.",
+      hi: "अल्लाह के नाम के साथ मैंने अपना पहलू रखा। ऐ अल्लाह! मेरे गुनाह बख्श दे, मेरे शैतान को दूर कर और मुझे आला मकाम अता फरमा।"
+    },
+    reference: "সুনানে আবু দাউদ: ৫০৫৪"
   }
 };
 
