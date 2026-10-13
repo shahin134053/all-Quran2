@@ -5,45 +5,22 @@ import {
   RefreshCw, CheckCircle2, AlertCircle, Building2, Star, Shield, Footprints, Clock, Car, Map, Compass as CompassIcon, ChevronRight, Share2 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { 
+  getMosquesForLocation, 
+  MosqueItem, 
+  calculateDistance, 
+  getTravelTimes 
+} from '../services/mosqueService';
+import { 
+  getCoordinatesForLocationName, 
+  detectLocationFromGPS 
+} from '../services/locationService';
 
-interface MosqueItem {
-  id: string | number;
-  name: string;
-  nameBn?: string;
-  lat: number;
-  lon: number;
-  distanceKm: number;
-  address?: string;
-  isNearest?: boolean;
-  isFurthest?: boolean;
-  walkingMins: number;
-  transportMins: number;
-  tags?: any;
-}
-
-interface NearbyMosquesViewProps {
+export interface NearbyMosquesViewProps {
   onBack: () => void;
   userLocationName?: string;
-}
-
-// Haversine formula to calculate distance in km between two lat/lon points
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth radius in km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-// Calculate estimated travel time
-function getTravelTimes(distanceKm: number) {
-  const walkingMins = Math.max(1, Math.round(distanceKm * 13));
-  const transportMins = Math.max(1, Math.round(distanceKm * 4 + 2));
-  return { walkingMins, transportMins };
+  userCoordinates?: { lat: number; lng: number };
+  onUpdateLocation?: (coords: { lat: number; lng: number }, name?: string) => void;
 }
 
 const MOSQUE_LOCALES: Record<string, {
@@ -293,18 +270,51 @@ const MOSQUE_LOCALES: Record<string, {
   }
 };
 
-export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ onBack, userLocationName }) => {
-  const { language, activeThemeConfig } = useApp();
+export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ 
+  onBack, 
+  userLocationName, 
+  userCoordinates, 
+  onUpdateLocation 
+}) => {
+  const { language, activeThemeConfig, simulatedLocation, setSimulatedLocation } = useApp();
   const langKey = MOSQUE_LOCALES[language] ? language : 'bn';
   const t = MOSQUE_LOCALES[langKey] || MOSQUE_LOCALES.en;
   const isBn = langKey === 'bn';
 
-  const [userLat, setUserLat] = useState<number>(23.8103);
-  const [userLon, setUserLon] = useState<number>(90.4125);
-  const [isLocating, setIsLocating] = useState<boolean>(true);
+  // Determine effective coordinates with clean priority:
+  // 1. Simulated test location (Admin)
+  // 2. Explicit coordinates passed from parent (userCoordinates)
+  // 3. Name-based coordinates (e.g. Los Angeles, USA -> 34.0522, -118.2437)
+  // 4. Saved location in localStorage
+  // 5. Default fallback (Dhaka 23.8103, 90.4125)
+  const resolveCoordinates = (): { lat: number; lng: number } => {
+    if (simulatedLocation?.isActive) {
+      return { lat: simulatedLocation.lat, lng: simulatedLocation.lng };
+    }
+    if (userCoordinates && typeof userCoordinates.lat === 'number' && typeof userCoordinates.lng === 'number') {
+      return { lat: userCoordinates.lat, lng: userCoordinates.lng };
+    }
+    if (userLocationName) {
+      const match = getCoordinatesForLocationName(userLocationName);
+      if (match) return { lat: match.lat, lng: match.lng };
+    }
+    try {
+      const saved = localStorage.getItem('user_saved_location');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.lat && parsed?.lng) return { lat: parsed.lat, lng: parsed.lng };
+      }
+    } catch {}
+    return { lat: 23.8103, lng: 90.4125 };
+  };
+
+  const initialCoords = resolveCoordinates();
+  const [userLat, setUserLat] = useState<number>(initialCoords.lat);
+  const [userLon, setUserLon] = useState<number>(initialCoords.lng);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   
-  const [radiusKm, setRadiusKm] = useState<number>(30);
+  const [radiusKm, setRadiusKm] = useState<number>(3);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [mosques, setMosques] = useState<MosqueItem[]>([]);
   const [isLoadingMosques, setIsLoadingMosques] = useState<boolean>(false);
@@ -313,199 +323,97 @@ export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ onBack, us
   const [selectedRouteMosque, setSelectedRouteMosque] = useState<MosqueItem | null>(null);
   const [routeMode, setRouteMode] = useState<'walking' | 'transport'>('walking');
 
-  // Get user geolocation on mount
-  useEffect(() => {
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lon = position.coords.longitude;
-          setUserLat(lat);
-          setUserLon(lon);
-          setIsLocating(false);
-          fetchMosques(lat, lon, radiusKm);
-        },
-        (error) => {
-          console.warn('Geolocation error or denied:', error.message);
-          setLocationError(isBn ? 'জিপিএস লোকেশন পেতে সমস্যা হয়েছে। আপনার নিকটস্থ এলাকাভিত্তিক জিপিএস ডাটা ব্যবহার করা হচ্ছে।' : 'GPS location unavailable. Using neighborhood fallback data.');
-          setIsLocating(false);
-          fetchMosques(23.8103, 90.4125, radiusKm);
-        },
-        { timeout: 10000, enableHighAccuracy: true }
-      );
-    } else {
-      setIsLocating(false);
-      fetchMosques(23.8103, 90.4125, radiusKm);
-    }
-  }, []);
-
-  const fetchMosques = async (lat: number, lon: number, radius: number) => {
+  // Load mosques for coordinates using 100% free mosqueService
+  const loadMosques = async (lat: number, lon: number, radius: number) => {
     setIsLoadingMosques(true);
-    const cacheKey = `mosques_${lat.toFixed(2)}_${lon.toFixed(2)}_${radius}`;
-    
     try {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const parsedCache = JSON.parse(cached);
-        if (Array.isArray(parsedCache) && parsedCache.length > 0) {
-          setMosques(parsedCache);
-          setIsLoadingMosques(false);
-          return;
-        }
-      }
-
-      const radiusMeters = radius * 1000;
-      const query = `
-        [out:json][timeout:20];
-        (
-          node["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${lat},${lon});
-          way["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${lat},${lon});
-          relation["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${lat},${lon});
-          node["amenity"="mosque"](around:${radiusMeters},${lat},${lon});
-          way["amenity"="mosque"](around:${radiusMeters},${lat},${lon});
-        );
-        out center;
-      `;
-
-      const mirrors = [
-        'https://overpass-api.de/api/interpreter',
-        'https://overpass.kumi.systems/api/interpreter'
-      ];
-
-      let elements: any[] = [];
-      let success = false;
-
-      for (const mirrorUrl of mirrors) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-          const response = await fetch(mirrorUrl, {
-            method: 'POST',
-            body: query,
-            headers: {
-              'Content-Type': 'text/plain'
-            },
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          const responseText = await response.text();
-          if (response.ok && !responseText.includes('Rate exceeded') && !responseText.includes('rate limit')) {
-            try {
-              const data = JSON.parse(responseText);
-              if (Array.isArray(data.elements)) {
-                elements = data.elements;
-                success = true;
-                break;
-              }
-            } catch (jsonErr) {}
-          }
-        } catch (mirrorErr) {
-          // Continue to next mirror or fallback
-        }
-      }
-
-      if (!success && elements.length === 0) {
-        throw new Error('Fallback to local database');
-      }
-
-      let parsedMosques: MosqueItem[] = elements.map((el: any, index: number) => {
-        const mLat = el.lat || (el.center && el.center.lat);
-        const mLon = el.lon || (el.center && el.center.lon);
-        if (!mLat || !mLon) return null;
-
-        const dist = calculateDistance(lat, lon, mLat, mLon);
-        const tags = el.tags || {};
-        const name = tags.name || tags['name:en'] || tags['name:bn'] || (isBn ? `স্হানীয় মসজিদ #${index + 1}` : `Local Mosque #${index + 1}`);
-        const nameBn = tags['name:bn'] || tags.name || (isBn ? `স্হানীয় মসজিদ #${index + 1}` : `Local Mosque #${index + 1}`);
-        const { walkingMins, transportMins } = getTravelTimes(dist);
-
-        return {
-          id: el.id || index,
-          name,
-          nameBn,
-          lat: mLat,
-          lon: mLon,
-          distanceKm: Number(dist.toFixed(2)),
-          address: tags['addr:suburb'] || tags['addr:neighbourhood'] || tags['addr:street'] || (isBn ? 'আপনার এলাকার নিকটস্থ মসজিদ' : 'Nearby Neighborhood Mosque'),
-          walkingMins,
-          transportMins,
-          tags
-        };
-      }).filter(Boolean);
-
-      const localFallbacks = getUltraLocalMosques(lat, lon);
-      const existingNames = new Set(parsedMosques.map(m => m.name));
-      localFallbacks.forEach(fb => {
-        if (!existingNames.has(fb.name)) {
-          parsedMosques.push(fb);
-        }
-      });
-
-      parsedMosques = parsedMosques.filter(m => m.distanceKm <= radius);
-      parsedMosques.sort((a, b) => a.distanceKm - b.distanceKm);
-
-      if (parsedMosques.length > 0) {
-        parsedMosques[0].isNearest = true;
-        parsedMosques[parsedMosques.length - 1].isFurthest = true;
-      }
-
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(parsedMosques));
-      } catch (e) {
-        // ignore quota error
-      }
-
-      setMosques(parsedMosques);
+      const list = await getMosquesForLocation(lat, lon, radius, isBn);
+      setMosques(list);
     } catch (err) {
-      console.warn('Using ultra-local neighborhood database fallback');
-      const fallbackList = getUltraLocalMosques(lat, lon);
-      fallbackList.sort((a, b) => a.distanceKm - b.distanceKm);
-      if (fallbackList.length > 0) {
-        fallbackList[0].isNearest = true;
-        fallbackList[fallbackList.length - 1].isFurthest = true;
-      }
-      setMosques(fallbackList);
+      console.error('Error fetching mosques:', err);
     } finally {
       setIsLoadingMosques(false);
     }
   };
 
-  const getUltraLocalMosques = (lat: number, lon: number): MosqueItem[] => {
-    const samples = [
-      { name: 'Central Community Jame Mosque (এলাকা কেন্দ্রীয় জামে মসজিদ)', nameBn: 'এলাকা কেন্দ্রীয় জামে মসজিদ', dLat: 0.0012, dLon: 0.0010, addr: isBn ? 'আপনার বাসার ৩০০ গজের মধ্যে' : 'Within 300 yards of your location' },
-      { name: 'Baitul Mamur Madrasah & Jame Mosque', nameBn: 'বাইতুল মামূর মাদ্রাসা ও জামে মসজিদ', dLat: -0.0025, dLon: 0.0018, addr: isBn ? 'ব্লক-এ, মূল সড়ক সংলগ্ন' : 'Block A, Main Road' },
-      { name: 'Madina Rahmatul Lil Alamin Mosque', nameBn: 'মদিনা রাহমাতুল্লিল আলামিন মসজিদ', dLat: 0.0045, dLon: -0.0032, addr: isBn ? 'পশ্চিম পাড়া জামে মসজিদ রোড' : 'West Para Jame Mosque Road' },
-      { name: 'Al-Ameen Residential Jame Mosque', nameBn: 'আল-আমিন আবাসিক জামে মসজিদ', dLat: -0.0060, dLon: -0.0050, addr: isBn ? 'আবাসিক এলাকা গেট সংলগ্ন' : 'Residential Area Gate' },
-      { name: 'Tawhid Central Mosque & Islamic Centre', nameBn: 'তৌহিদ কেন্দ্রীয় মসজিদ ও ইসলামিক সেন্টার', dLat: 0.0120, dLon: 0.0080, addr: isBn ? 'মার্কেট চত্বর রোড' : 'Market Square Road' },
-      { name: 'Quba Noor Jamia Mosque', nameBn: 'কুবা নূর জামে মসজিদ', dLat: -0.0180, dLon: 0.0140, addr: isBn ? 'পূর্ব রোড সংলগ্ন' : 'East Road Adjacent' },
-      { name: 'Shanti Nagar Baitus Salam Mosque', nameBn: 'শান্তিনগর বাইতুস সালাম জামে মসজিদ', dLat: 0.0350, dLon: -0.0250, addr: isBn ? 'মূল হাইওয়ে রোড' : 'Main Highway Road' },
-      { name: 'Baitul Mukarram Regional Branch Mosque', nameBn: 'এলাকা শাখা বাইতুল মুকাররম মসজিদ', dLat: 0.0650, dLon: 0.0450, addr: isBn ? 'সিটি সেন্টার রোড' : 'City Center Road' }
-    ];
+  useEffect(() => {
+    // If not in Admin simulation, proactively detect real GPS with high accuracy
+    if (!simulatedLocation?.isActive && 'geolocation' in navigator) {
+      setIsLocating(true);
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          setUserLat(lat);
+          setUserLon(lon);
+          setIsLocating(false);
+          loadMosques(lat, lon, radiusKm);
 
-    return samples.map((s, idx) => {
-      const mLat = lat + s.dLat;
-      const mLon = lon + s.dLon;
-      const dist = calculateDistance(lat, lon, mLat, mLon);
-      const { walkingMins, transportMins } = getTravelTimes(dist);
-      return {
-        id: `local-${idx}`,
-        name: s.name,
-        nameBn: s.nameBn,
-        lat: mLat,
-        lon: mLon,
-        distanceKm: Number(dist.toFixed(2)),
-        address: s.addr,
-        walkingMins,
-        transportMins
-      };
-    });
-  };
+          try {
+            const detected = await detectLocationFromGPS(lat, lon, language);
+            if (onUpdateLocation) {
+              onUpdateLocation({ lat, lng: lon }, detected.name);
+            }
+          } catch {}
+        },
+        () => {
+          setIsLocating(false);
+          const coords = resolveCoordinates();
+          setUserLat(coords.lat);
+          setUserLon(coords.lng);
+          loadMosques(coords.lat, coords.lng, radiusKm);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      );
+    } else {
+      const coords = resolveCoordinates();
+      setUserLat(coords.lat);
+      setUserLon(coords.lng);
+      loadMosques(coords.lat, coords.lng, radiusKm);
+    }
+  }, [simulatedLocation, userCoordinates, userLocationName]);
 
   const handleRefresh = () => {
-    fetchMosques(userLat, userLon, radiusKm);
+    loadMosques(userLat, userLon, radiusKm);
   };
+
+  // Real GPS detection handler (100% free browser API, zero cost)
+  const handleDetectGPS = () => {
+    if (!('geolocation' in navigator)) {
+      setLocationError(isBn ? 'আপনার ব্রাউজারে জিপিএস সুবিধা সমর্থিত নয়।' : 'Geolocation not supported in this browser.');
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        setUserLat(lat);
+        setUserLon(lon);
+        setIsLocating(false);
+
+        const detected = await detectLocationFromGPS(lat, lon, language);
+        if (onUpdateLocation) {
+          onUpdateLocation({ lat, lng: lon }, detected.name);
+        }
+        loadMosques(lat, lon, radiusKm);
+      },
+      (err) => {
+        console.warn('GPS detection failed or denied:', err.message);
+        setIsLocating(false);
+        setLocationError(
+          isBn
+            ? 'জিপিএস অনুমতি পাওয়া যায়নি বা সিগন্যাল নেই। আপনার বর্তমান সক্রিয় অবস্থান অপরিবর্তিত রাখা হয়েছে।'
+            : 'GPS permission denied or unavailable. Keeping current active location.'
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
 
   const filteredMosques = mosques.filter(m => {
     if (!searchQuery.trim()) return true;
@@ -701,27 +609,87 @@ export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ onBack, us
       className="space-y-6 pb-20 pt-2"
     >
       {/* Top Header */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95"
-        >
-          <ArrowLeft size={16} />
-          <span>{t.backBtn}</span>
-        </button>
-
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95 cursor-pointer"
+          >
+            <ArrowLeft size={16} />
+            <span>{t.backBtn}</span>
+          </button>
+
+          {/* Active Location Pill */}
+          <div className="px-3 py-2 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-200 max-w-[200px] sm:max-w-xs truncate">
+            <MapPin size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="truncate">
+              {simulatedLocation?.isActive 
+                ? simulatedLocation.name 
+                : (userLocationName || (isBn ? 'বর্তমান অবস্থান' : 'Current Location'))}
+            </span>
+            <span className="text-[10px] font-mono text-slate-400 font-normal shrink-0">
+              ({userLat.toFixed(2)}, {userLon.toFixed(2)})
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* GPS Auto-detect Button */}
+          <button
+            onClick={handleDetectGPS}
+            disabled={isLocating}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            title={isBn ? 'জিপিএস দিয়ে স্বয়ংক্রিয়ভাবে বর্তমান অবস্থান শনাক্ত করুন' : 'Auto-detect current location via GPS'}
+          >
+            <Navigation size={13} className={isLocating ? 'animate-spin' : ''} />
+            <span>{isLocating ? (isBn ? 'শনাক্ত হচ্ছে...' : 'Detecting...') : (isBn ? 'জিপিএস অটো' : 'Auto GPS')}</span>
+          </button>
+
+          {/* Reload Mosques Button */}
           <button
             onClick={handleRefresh}
             disabled={isLoadingMosques}
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-xs border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-all active:scale-95 cursor-pointer"
             title={t.reloadBtn}
           >
-            <RefreshCw size={14} className={isLoadingMosques ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={isLoadingMosques ? 'animate-spin' : ''} />
             <span>{t.reloadBtn}</span>
           </button>
         </div>
       </div>
+
+      {/* Simulated Location Admin Banner (if active) */}
+      {simulatedLocation?.isActive && (
+        <div className="p-4 rounded-[1.8rem] bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/5 dark:from-amber-950/40 dark:via-yellow-950/20 dark:to-transparent border border-amber-500/30 shadow-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-amber-500/20">
+              <Compass size={18} className="animate-spin" style={{ animationDuration: '6s' }} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                  {isBn ? '🧪 টেস্ট লোকেশন সিমুলেশন সক্রিয়' : '🧪 Simulated Test Location Active'}
+                </span>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-white uppercase tracking-wider">
+                  Admin Test
+                </span>
+              </div>
+              <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                {simulatedLocation.name} <span className="font-mono text-slate-500 font-normal">({simulatedLocation.lat.toFixed(4)}, {simulatedLocation.lng.toFixed(4)})</span>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setSimulatedLocation(null);
+            }}
+            className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 border border-amber-300 dark:border-amber-700/60 text-xs font-black shrink-0 transition-all active:scale-95 shadow-2xs"
+            title={isBn ? 'রিয়েল জিপিএস লোকেশনে ফিরে যান' : 'Reset to Real GPS'}
+          >
+            {isBn ? 'রিয়েল জিপিএস' : 'Reset GPS'}
+          </button>
+        </div>
+      )}
 
       {/* Hero Banner */}
       <div 
@@ -828,14 +796,16 @@ export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ onBack, us
             onChange={(e) => {
               const r = Number(e.target.value);
               setRadiusKm(r);
-              fetchMosques(userLat, userLon, r);
+              loadMosques(userLat, userLon, r);
             }}
             className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3 px-4 text-xs font-black text-slate-700 dark:text-slate-200 outline-none"
           >
-            <option value={1}>1 km</option>
+            <option value={0.32}>{isBn ? '৩৫০ গজ (~৩২০ মি. নিকটতম)' : '350 yards (~320m Direct)'}</option>
+            <option value={1.5}>{isBn ? '১.৫ কিমি (হাঁটার দূরত্ব)' : '1.5 km (Walking)'}</option>
+            <option value={3}>{isBn ? '৩ কিমি (নিকটস্থ এলাকা)' : '3 km (Neighborhood)'}</option>
             <option value={5}>5 km</option>
             <option value={10}>10 km</option>
-            <option value={30}>30 km</option>
+            <option value={25}>25 km</option>
           </select>
         </div>
       </div>
@@ -888,13 +858,19 @@ export const NearbyMosquesView: React.FC<NearbyMosquesViewProps> = ({ onBack, us
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 flex items-center justify-center font-black text-xs">
                         {idx + 1}
                       </span>
                       {mosque.isNearest && (
                         <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white font-black text-[9px] uppercase tracking-wider">
                           {t.nearestRank}
+                        </span>
+                      )}
+                      {(mosque.isWithin350Yards || mosque.distanceKm <= 0.32) && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-white font-black text-[9px] uppercase tracking-wider flex items-center gap-1">
+                          <Footprints size={10} />
+                          {isBn ? '৩৫০ গজের মধ্যে' : 'Within 350 Yards'}
                         </span>
                       )}
                     </div>

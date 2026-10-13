@@ -7,6 +7,7 @@ import {
   Share2, Sun, Flame
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { playAudioText, stopAllAudio } from '../utils/audioHelper';
 import { PrayerTimings, HijriDate } from '../types';
 
 interface RamadanDedicatedViewProps {
@@ -93,16 +94,17 @@ export const RamadanDedicatedView: React.FC<RamadanDedicatedViewProps> = ({
   const fastingMilestone = getNextFastingMilestone();
 
   const playDuaVoice = (text: string, id: string) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setPlayingAudioId(id);
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.88;
-      utterance.pitch = 1.0;
-      utterance.onend = () => setPlayingAudioId(null);
-      utterance.onerror = () => setPlayingAudioId(null);
-      window.speechSynthesis.speak(utterance);
+    if (playingAudioId === id) {
+      stopAllAudio();
+      setPlayingAudioId(null);
+      return;
     }
+
+    setPlayingAudioId(id);
+    playAudioText(text, 'ar', {
+      onEnd: () => setPlayingAudioId(null),
+      onError: () => setPlayingAudioId(null)
+    });
   };
 
   const QURAN_VERSES = language === 'en' ? [

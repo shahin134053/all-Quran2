@@ -24,7 +24,16 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ url, title, onClose }) => {
   const [sleepTimerSeconds, setSleepTimerSeconds] = useState<number>(0);
   const [showSleepMenu, setShowSleepMenu] = useState(false);
 
+  const [audioSrc, setAudioSrc] = useState<string>(url.startsWith('http://') ? url.replace('http://', 'https://') : url);
+  const [hasTriedFallback, setHasTriedFallback] = useState(false);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const cleanUrl = url.startsWith('http://') ? url.replace('http://', 'https://') : url;
+    setAudioSrc(cleanUrl);
+    setHasTriedFallback(false);
+  }, [url]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -35,7 +44,25 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ url, title, onClose }) => {
       });
       setIsPlaying(true);
     }
-  }, [url]);
+  }, [audioSrc]);
+
+  const handleAudioError = () => {
+    if (!hasTriedFallback) {
+      setHasTriedFallback(true);
+      // If current source failed, switch to EveryAyah CDN mirror or secondary CDN
+      if (!audioSrc.includes('everyayah.com')) {
+        // Try extracting surah:ayah if title format is "Surah : Ayah"
+        const match = title.match(/(\d+)\s*:\s*(\d+)/);
+        if (match) {
+          const s = String(match[1]).padStart(3, '0');
+          const a = String(match[2]).padStart(3, '0');
+          setAudioSrc(`https://everyayah.com/data/Alafasy_128kbps/${s}${a}.mp3`);
+          return;
+        }
+      }
+    }
+    setIsPlaying(false);
+  };
 
   // Handle sleep timer countdown
   useEffect(() => {
@@ -129,9 +156,10 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ url, title, onClose }) => {
     >
       <audio 
         ref={audioRef} 
-        src={url} 
+        src={audioSrc} 
         onTimeUpdate={handleTimeUpdate} 
         onEnded={() => setIsPlaying(false)}
+        onError={handleAudioError}
       />
       
       {/* Top Header & Track Info */}

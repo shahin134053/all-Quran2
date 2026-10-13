@@ -1,4 +1,4 @@
-export const CURRENT_APP_VERSION = '1.0.1';
+export const CURRENT_APP_VERSION = '2.0.0';
 export const GITHUB_REPO = 'shahinprpl-sketch/quran-app';
 
 export interface UpdateInfo {

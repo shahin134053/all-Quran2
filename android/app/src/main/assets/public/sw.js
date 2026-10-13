@@ -67,10 +67,13 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-5a5d9309'], (function (workbox) { 'use strict';
+define(['./workbox-7a5e81cd'], (function (workbox) { 'use strict';
 
-  self.skipWaiting();
-  workbox.clientsClaim();
+  self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+      self.skipWaiting();
+    }
+  });
 
   /**
    * The precacheAndRoute() method efficiently caches and responds to
@@ -82,16 +85,34 @@ define(['./workbox-5a5d9309'], (function (workbox) { 'use strict';
     "revision": "1872c500de691dce40960bb85481de07"
   }, {
     "url": "index.html",
-    "revision": "fd911c6c80920bdf2086dbdacaf46370"
+    "revision": "be4fceb8f55b03bbe6bfacfc08646542"
   }, {
-    "url": "assets/index-fF1NRWBb.js",
+    "url": "assets/vendor-react-I_Q7SZSl.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-motion-BTD36NgJ.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-icons-BSlGhDbd.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-firebase-D-mV0kkx.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-CSdY4G_a.js",
+    "revision": null
+  }, {
+    "url": "assets/index-CxmthdEu.css",
+    "revision": null
+  }, {
+    "url": "assets/index-CFxE12M1.js",
     "revision": null
   }, {
     "url": "icon.svg",
-    "revision": "af084371eede110f8bcaec34ad4ad9cd"
+    "revision": "f4a46b0a517b60f3435ed236aab5a635"
   }, {
     "url": "manifest.webmanifest",
-    "revision": "83ee6c698fd2824e363312bb0524e8f8"
+    "revision": "1204c8817fe24f8e9570b6cfda566475"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html")));

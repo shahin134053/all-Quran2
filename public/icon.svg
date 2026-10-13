@@ -100,10 +100,10 @@
     <polygon points="12,-66 14,-62 18,-62 15,-59 16,-55 12,-57 8,-55 9,-59 6,-62 10,-62" fill="#fef08a" transform="scale(0.8) translate(5, -15)" />
   </g>
 
-  <!-- Bottom App Label: AL-QURAN (বাংলা / Arabic) in Gold Calligraphy Style -->
+  <!-- Bottom App Label: AL-SHAHIN QURAN (বাংলা / Arabic) in Gold Calligraphy Style -->
   <g transform="translate(256, 436)" text-anchor="middle">
-    <!-- Bengali / Arabic text with gold gradient -->
-    <text y="0" font-family="'Scheherazade New', 'Amiri', 'Tiro Bangla', 'Noto Sans Bengali', serif, sans-serif" font-size="34" font-weight="900" fill="url(#goldGrad)" letter-spacing="4">القرآن الكريم</text>
-    <text y="28" font-family="'Tiro Bangla', 'Noto Sans Bengali', sans-serif" font-size="18" font-weight="700" fill="#a7f3d0" letter-spacing="3" opacity="0.9">আল-কুরআনুল কারীম</text>
+    <!-- Arabic & Bengali text with gold gradient -->
+    <text y="0" font-family="'Scheherazade New', 'Amiri', 'Tiro Bangla', 'Noto Sans Bengali', serif, sans-serif" font-size="32" font-weight="900" fill="url(#goldGrad)" letter-spacing="3">القرآن الكريم</text>
+    <text y="28" font-family="'Tiro Bangla', 'Noto Sans Bengali', sans-serif" font-size="18" font-weight="700" fill="#a7f3d0" letter-spacing="2" opacity="0.95">আল-শাহীন কুরআন</text>
   </g>
 </svg>

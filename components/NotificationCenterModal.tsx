@@ -4,7 +4,7 @@ import {
   X, Bell, CheckCheck, Sparkles, Calendar, Clock, 
   Trash2, ShieldCheck, ChevronRight, Moon, Send, Mail,
   Volume2, VolumeX, BellOff, Sliders, Check, ShieldAlert,
-  Info, Timer
+  Info, Timer, Lock
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Announcement, NotificationPreferences } from '../types';
@@ -529,9 +529,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                   onOpenAdmin();
                 }}
                 className="text-[11px] font-black text-slate-400 hover:text-amber-500 flex items-center gap-1 transition-colors"
+                title={language === 'bn' ? 'অ্যাডমিন প্যানেল (পাসওয়ার্ড আবশ্যক)' : 'Admin Panel (Password Required)'}
               >
-                <ShieldCheck size={13} />
-                <span>Admin</span>
+                <Lock size={12} />
+                <span>{language === 'bn' ? 'অ্যাডমিন' : 'Admin'}</span>
               </button>
             </div>
           </motion.div>

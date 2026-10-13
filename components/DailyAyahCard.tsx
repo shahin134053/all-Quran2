@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Sparkles, Copy, Check, Share2, BookOpen, Quote } from 'lucide-react';
+import { Sparkles, Copy, Check, Share2, BookOpen, Quote, Volume2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { playAudioText, stopAllAudio } from '../utils/audioHelper';
 import { DAILY_AYAH_LIST, DailyAyahItem, UI_TRANSLATIONS, getLocalizedSurah } from '../constants';
 
 interface DailyAyahCardProps {
@@ -19,6 +20,7 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
   const { language, activeThemeConfig } = useApp();
   const t = UI_TRANSLATIONS[language] || UI_TRANSLATIONS.en;
   const [copied, setCopied] = useState(false);
+  const [isPlayingTranslation, setIsPlayingTranslation] = useState(false);
 
   // Compute daily rotating Ayah based on day of year
   const now = new Date();
@@ -29,6 +31,22 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
 
   const localizedSurah = getLocalizedSurah(currentAyah.surahNumber, language, currentAyah.surahNameEn, currentAyah.arabic, currentAyah.english);
   const displayedTranslation = language === 'bn' ? currentAyah.bangla : currentAyah.english;
+
+  const handleSpeakTranslation = () => {
+    if (isPlayingTranslation) {
+      stopAllAudio();
+      setIsPlayingTranslation(false);
+      return;
+    }
+
+    setIsPlayingTranslation(true);
+    const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : (language === 'es' ? 'es' : 'en'));
+
+    playAudioText(displayedTranslation, targetLang, {
+      onEnd: () => setIsPlayingTranslation(false),
+      onError: () => setIsPlayingTranslation(false)
+    });
+  };
 
   const handleCopy = () => {
     const textToCopy = `"${currentAyah.arabic}"\n\n${displayedTranslation}\n— ${localizedSurah.name} (${currentAyah.ayahNumber})`;
@@ -102,7 +120,7 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
           <button
             onClick={() => onReadSurah(currentAyah.surahNumber)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black text-white shadow-sm active:scale-95 transition-all"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black text-white shadow-sm active:scale-95 transition-all shrink-0"
             style={{ backgroundColor: activeThemeConfig.primaryColor }}
           >
             <BookOpen size={14} />
@@ -110,6 +128,19 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
           </button>
 
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleSpeakTranslation}
+              className={`p-2 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-bold ${
+                isPlayingTranslation
+                  ? 'border-emerald-500 bg-emerald-500 text-white animate-pulse shadow-md'
+                  : 'border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-emerald-600 active:scale-90'
+              }`}
+              title={language === 'bn' ? 'অনুবাদ অর্থ শুনুন' : 'Listen Translation'}
+            >
+              <Volume2 size={14} />
+              <span className="hidden sm:inline">{language === 'bn' ? 'অর্থ শুনুন' : 'Listen'}</span>
+            </button>
+
             {onOpenSocialCard && (
               <button
                 onClick={() => onOpenSocialCard({
@@ -120,11 +151,11 @@ export const DailyAyahCard: React.FC<DailyAyahCardProps> = ({ onReadSurah, onOpe
                   arabicText: currentAyah.arabic,
                   bengaliTranslation: displayedTranslation
                 })}
-                className="p-2 rounded-xl border border-amber-200/80 dark:border-amber-800/80 bg-amber-50/70 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:scale-105 active:scale-90 transition-all flex items-center gap-1 text-xs font-bold"
-                title={t.shareCardBtn}
+                className="px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-gradient-to-r from-amber-500/10 to-amber-500/20 dark:from-amber-950/40 dark:to-amber-900/40 text-amber-800 dark:text-amber-300 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 text-xs font-black shadow-sm"
+                title={language === 'bn' ? 'সোশ্যাল কার্ড জেনারেট করুন' : 'Generate Social Card'}
               >
-                <Sparkles size={14} className="text-amber-500" />
-                <span className="hidden sm:inline">{t.shareCardBtn}</span>
+                <Sparkles size={15} className="text-amber-500 animate-pulse" />
+                <span>{language === 'bn' ? '✨ আয়া কার্ড' : '✨ Ayah Card'}</span>
               </button>
             )}
 

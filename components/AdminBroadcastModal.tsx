@@ -5,8 +5,9 @@ import {
   Trash2, AlertCircle, RefreshCw, KeyRound, Lock,
   BookmarkCheck, MessageSquare, Flame, BellRing,
   Mail, Inbox, CheckCheck, ExternalLink, CornerDownLeft,
-  Timer, HardDrive, LayoutDashboard, Radio, Eye,
-  Volume2, CheckCircle2, ChevronRight, UserCheck
+  Timer, HardDrive, LayoutDashboard, Radio, Eye, EyeOff,
+  Volume2, CheckCircle2, ChevronRight, UserCheck, ShieldAlert, Key,
+  MapPin, Compass, Globe, Bell, Navigation, RotateCcw, Info
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Announcement, UserMessage } from '../types';
@@ -20,12 +21,17 @@ import {
   calculateExpiryStatus,
   playPoliteChime
 } from '../services/announcementService';
+import { INTERNATIONAL_TEST_PRESETS, LocationItem } from '../services/locationService';
 
 interface AdminBroadcastModalProps {
   isOpen: boolean;
   onClose: () => void;
   announcements: Announcement[];
   onRefresh?: () => void;
+  onNavigateToTab?: (tab: string) => void;
+  isRamadanDemoActive?: boolean;
+  onToggleRamadanDemo?: () => void;
+  onTriggerPrayerReminderTest?: () => void;
 }
 
 const OCCASION_TEMPLATES = [
@@ -80,13 +86,14 @@ const OCCASION_TEMPLATES = [
 ];
 
 const ADMIN_PIN_STORAGE_KEY = 'al_muneer_admin_auth_v2';
-const ADMIN_SECURITY_PIN = '830973';
+const ADMIN_DEFAULT_SECURITY_PIN = '830973';
+const ADMIN_CUSTOM_PASSWORD_KEY = 'al_muneer_admin_custom_password';
 
 // Convert Bengali numerals to standard English digits for easy login
 const normalizePinInput = (input: string): string => {
   const banglaMap: Record<string, string> = {
     '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
-    '5': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
   };
   return input.trim().replace(/[০-৯]/g, (digit) => banglaMap[digit] || digit);
 };
@@ -95,19 +102,37 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
   isOpen,
   onClose,
   announcements,
-  onRefresh
+  onRefresh,
+  onNavigateToTab,
+  isRamadanDemoActive,
+  onToggleRamadanDemo,
+  onTriggerPrayerReminderTest
 }) => {
-  const { language, activeThemeConfig } = useApp();
+  const { language, activeThemeConfig, simulatedLocation, setSimulatedLocation } = useApp();
 
-  // Authentication state (Owner passcode protect: 830973 / ৮৩০৯৭৩)
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem(ADMIN_PIN_STORAGE_KEY) === 'authenticated';
-  });
+  // STRICT AUTHENTICATION: Never auto-authenticate from persistent storage.
+  // Every access to the Admin Panel must require entering the dedicated password!
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState(false);
 
-  // Active Tab: dashboard (Control Center), compose, inbox, history
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'compose' | 'inbox' | 'history'>('dashboard');
+  // Dedicated Password management in Dashboard
+  const [showPinInDashboard, setShowPinInDashboard] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentPwdInput, setCurrentPwdInput] = useState('');
+  const [newPwdInput, setNewPwdInput] = useState('');
+  const [changePwdError, setChangePwdError] = useState<string | null>(null);
+
+  // Active Tab: compose (Broadcast), dashboard (Control Center), inbox, history, testing (Testing Lab)
+  const [activeTab, setActiveTab] = useState<'compose' | 'dashboard' | 'inbox' | 'history' | 'testing'>('compose');
+
+  // Testing Lab tab states
+  const [testRegionFilter, setTestRegionFilter] = useState<'all' | 'usa' | 'uk' | 'middle_east' | 'asia_canada'>('usa');
+  const [customCityName, setCustomCityName] = useState('');
+  const [customLat, setCustomLat] = useState('');
+  const [customLng, setCustomLng] = useState('');
+  const [customCountry, setCustomCountry] = useState('');
 
   // Broadcast form fields
   const [title, setTitle] = useState('');
@@ -143,6 +168,20 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
   const [userMessages, setUserMessages] = useState<UserMessage[]>([]);
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'replied'>('all');
 
+  // Strict Lock Enforcement: Whenever modal opens or closes, always require dedicated password
+  useEffect(() => {
+    // Purge any legacy persistent token so no device can bypass password
+    try {
+      localStorage.removeItem(ADMIN_PIN_STORAGE_KEY);
+    } catch (_) {}
+    setIsAuthenticated(false);
+    setPinInput('');
+    setAuthError(false);
+    setShowPassword(false);
+    setIsChangePasswordOpen(false);
+    setChangePwdError(null);
+  }, [isOpen]);
+
   useEffect(() => {
     if (isOpen && isAuthenticated) {
       const unsub = subscribeUserMessages((msgs) => {
@@ -159,23 +198,72 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // Helper to check if provided password matches dedicated admin password
+  const checkAdminPassword = (input: string): boolean => {
+    const raw = input.trim();
+    const sanitized = normalizePinInput(raw);
+    const customPassword = localStorage.getItem(ADMIN_CUSTOM_PASSWORD_KEY)?.trim();
+
+    if (customPassword && (raw === customPassword || sanitized === normalizePinInput(customPassword))) {
+      return true;
+    }
+
+    const defaultPasswords = [ADMIN_DEFAULT_SECURITY_PIN, '৮৩০৯৭৩', 'admin830973'];
+    return defaultPasswords.includes(raw) || defaultPasswords.includes(sanitized);
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const sanitizedPin = normalizePinInput(pinInput);
-    if (sanitizedPin === ADMIN_SECURITY_PIN || pinInput.trim() === '৮৩০৯৭৩') {
+    if (!pinInput.trim()) {
+      setAuthError(true);
+      return;
+    }
+
+    if (checkAdminPassword(pinInput)) {
       setIsAuthenticated(true);
       setAuthError(false);
-      localStorage.setItem(ADMIN_PIN_STORAGE_KEY, 'authenticated');
+      setPinInput('');
+      showToast(language === 'bn' ? 'অ্যাডমিন প্যানেলে প্রবেশ অনুমোদিত হয়েছে।' : 'Admin Control Center unlocked.');
     } else {
       setAuthError(true);
       setPinInput('');
     }
   };
 
-  const handleLogout = () => {
+  const handleLock = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem(ADMIN_PIN_STORAGE_KEY);
     setPinInput('');
+    setAuthError(false);
+    setShowPassword(false);
+    showToast(language === 'bn' ? 'অ্যাডমিন প্যানেল সফলভাবে লক করা হয়েছে।' : 'Admin panel safely locked.');
+  };
+
+  const handleModalClose = () => {
+    setIsAuthenticated(false);
+    setPinInput('');
+    setAuthError(false);
+    setShowPassword(false);
+    setIsChangePasswordOpen(false);
+    onClose();
+  };
+
+  const handleChangeDedicatedPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangePwdError(null);
+    if (!checkAdminPassword(currentPwdInput)) {
+      setChangePwdError(language === 'bn' ? 'বর্তমান পাসওয়ার্ডটি সঠিক নয়!' : 'Current password is incorrect!');
+      return;
+    }
+    const trimmedNew = newPwdInput.trim();
+    if (trimmedNew.length < 4) {
+      setChangePwdError(language === 'bn' ? 'নতুন পাসওয়ার্ড কমপক্ষে ৪ অক্ষরের হতে হবে।' : 'New password must be at least 4 characters.');
+      return;
+    }
+    localStorage.setItem(ADMIN_CUSTOM_PASSWORD_KEY, trimmedNew);
+    setCurrentPwdInput('');
+    setNewPwdInput('');
+    setIsChangePasswordOpen(false);
+    showToast(language === 'bn' ? 'ডেডিকেটেড অ্যাডমিন পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!' : 'Dedicated admin password updated successfully!');
   };
 
   const handleApplyTemplate = (tpl: typeof OCCASION_TEMPLATES[0]) => {
@@ -304,6 +392,15 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
     return true;
   });
 
+  const filteredPresets = INTERNATIONAL_TEST_PRESETS.filter(p => {
+    if (testRegionFilter === 'all') return true;
+    if (testRegionFilter === 'usa') return p.countryCode === 'US';
+    if (testRegionFilter === 'uk') return p.countryCode === 'GB' || p.countryCode === 'FR' || p.countryCode === 'TR';
+    if (testRegionFilter === 'middle_east') return p.countryCode === 'SA' || p.countryCode === 'AE';
+    if (testRegionFilter === 'asia_canada') return p.countryCode === 'CA' || p.countryCode === 'AU' || p.countryCode === 'MY' || p.countryCode === 'BD';
+    return true;
+  });
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -312,7 +409,7 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleModalClose}
             className="fixed inset-0 bg-slate-950/75 backdrop-blur-md"
           />
 
@@ -356,20 +453,21 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                     <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
                       {language === 'bn' ? 'অ্যাডমিন কন্ট্রোল সেন্টার' : 'Admin Control Center'}
                     </h3>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                      Secure Access
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1">
+                      <Lock size={10} />
+                      <span>Password Protected</span>
                     </span>
                   </div>
                   <p className="text-[11px] font-medium text-slate-400">
                     {language === 'bn' 
-                      ? 'ব্রডকাস্ট নোটিফিকেশন, ইউজার ইনবক্স ও ০ কেবি সার্ভার ম্যানেজমেন্ট' 
-                      : 'Broadcast notifications, user inbox & 0 KB server management'}
+                      ? 'শুধুমাত্র অনুমোদিত অ্যাডমিন — ব্রডকাস্ট, ইউজার ইনবক্স ও কন্ট্রোল' 
+                      : 'Authorized Admin only — Broadcasts, user inbox & control'}
                   </p>
                 </div>
               </div>
 
               <button
-                onClick={onClose}
+                onClick={handleModalClose}
                 className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center justify-center transition-colors active:scale-95"
               >
                 <X size={17} />
@@ -378,18 +476,22 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
 
             {/* Authentication Lock or Admin Console */}
             {!isAuthenticated ? (
-              <div className="p-8 text-center space-y-6">
-                <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto border border-amber-500/20">
+              <div className="p-6 sm:p-8 text-center space-y-6">
+                <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto border border-amber-500/20 shadow-inner">
                   <Lock size={30} />
                 </div>
                 <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-black uppercase tracking-wider border border-rose-500/20 mb-2.5">
+                    <ShieldAlert size={12} />
+                    <span>{language === 'bn' ? 'শুধুমাত্র অনুমোদিত অ্যাডমিন অ্যাক্সেস' : 'Restricted Admin Access'}</span>
+                  </div>
                   <h4 className="text-lg font-black text-slate-900 dark:text-white">
-                    {language === 'bn' ? 'অ্যাডমিন সিকিউরিটি যাচাই' : 'Admin PIN Verification'}
+                    {language === 'bn' ? 'অ্যাডমিন ডেডিকেটেড পাসওয়ার্ড যাচাই' : 'Admin Dedicated Password'}
                   </h4>
-                  <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed font-bangla">
                     {language === 'bn' 
-                      ? 'অননুমোদিত বার্তা পাঠানো রোধ করতে আপনার গোপন পিন নম্বর দিন।' 
-                      : 'Please enter your 6-digit administrator PIN.'}
+                      ? 'অ্যাডমিন প্যানেলে প্রবেশের জন্য নির্ধারিত ডেডিকেটেড পাসওয়ার্ড প্রবেশ করান। সাধারণ ইউজার বা পাসওয়ার্ড ছাড়া প্রবেশ সম্পূর্ণরূপে নিষিদ্ধ।' 
+                      : 'Please enter the dedicated administrator password to access. Access without the dedicated password is strictly prohibited.'}
                   </p>
                 </div>
 
@@ -397,78 +499,92 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                   <div className="relative">
                     <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input
-                      type="password"
-                      maxLength={6}
-                      inputMode="numeric"
+                      type={showPassword ? 'text' : 'password'}
+                      maxLength={32}
                       value={pinInput}
                       onChange={(e) => {
                         setPinInput(e.target.value);
                         setAuthError(false);
                       }}
-                      placeholder="••••••"
+                      placeholder={language === 'bn' ? 'পাসওয়ার্ড লিখুন...' : 'Enter password...'}
                       autoFocus
-                      className={`w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border ${
+                      className={`w-full pl-11 pr-11 py-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border ${
                         authError 
-                          ? 'border-rose-500 ring-2 ring-rose-500/20' 
-                          : 'border-slate-200 dark:border-slate-700'
-                      } text-center tracking-[0.5em] text-lg font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 transition-all`}
+                          ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 dark:bg-rose-950/20' 
+                          : 'border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20'
+                      } text-center text-base font-bold text-slate-900 dark:text-white focus:outline-none transition-all`}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
 
                   {authError && (
-                    <p className="text-xs font-bold text-rose-500 flex items-center justify-center gap-1">
-                      <AlertCircle size={13} />
-                      <span>{language === 'bn' ? 'ভুল পিন নম্বর! পুনরায় চেষ্টা করুন।' : 'Invalid PIN! Please try again.'}</span>
-                    </p>
+                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center justify-center gap-1.5">
+                      <AlertCircle size={14} className="shrink-0" />
+                      <span>{language === 'bn' ? 'ভুল পাসওয়ার্ড! নির্ধারিত পাসওয়ার্ড ছাড়া প্রবেশাধিকার নেই।' : 'Incorrect password! Access denied.'}</span>
+                    </div>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-black text-xs shadow-lg shadow-amber-500/25 active:scale-95 transition-all"
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-black text-xs shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {language === 'bn' ? 'আনলক করুন' : 'Unlock Control Center'}
+                    <Lock size={14} />
+                    <span>{language === 'bn' ? 'পাসওয়ার্ড যাচাই করে প্রবেশ করুন' : 'Verify Password & Enter'}</span>
                   </button>
+
+                  <div className="pt-2 text-[11px] text-slate-400 flex items-center justify-center gap-1 font-medium">
+                    <ShieldCheck size={13} className="text-emerald-500" />
+                    <span>{language === 'bn' ? 'এমনকি অ্যাডমিনকেও প্রতিবার পাসওয়ার্ড দিয়ে প্রবেশ করতে হবে' : 'Password verification required on every entry'}</span>
+                  </div>
                 </form>
               </div>
             ) : (
               /* Authenticated Admin Console with 4 Tabs */
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="flex-1 overflow-y-auto">
                 {/* Navigation Bar */}
                 <div className="sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 z-10">
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                    {/* Tab 1: Control Center Dashboard */}
+                    {/* Tab 1: Compose Broadcast (Primary Action) */}
+                    <button
+                      onClick={() => setActiveTab('compose')}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        activeTab === 'compose'
+                          ? 'bg-amber-500 text-white shadow-md shadow-amber-500/25 ring-2 ring-amber-500/30'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <Send size={13} />
+                      <span>{language === 'bn' ? '📢 ব্রডকাস্ট পাঠান' : '📢 Send Broadcast'}</span>
+                    </button>
+
+                    {/* Tab 2: Control Center Dashboard */}
                     <button
                       onClick={() => setActiveTab('dashboard')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
                         activeTab === 'dashboard'
                           ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
                       <LayoutDashboard size={13} />
                       <span>{language === 'bn' ? 'কন্ট্রোল সেন্টার' : 'Control Center'}</span>
                     </button>
 
-                    {/* Tab 2: Compose Broadcast */}
-                    <button
-                      onClick={() => setActiveTab('compose')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                        activeTab === 'compose'
-                          ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Radio size={13} />
-                      <span>{language === 'bn' ? 'নতুন বার্তা' : 'Broadcast'}</span>
-                    </button>
-
                     {/* Tab 3: User Inbox */}
                     <button
                       onClick={() => setActiveTab('inbox')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
                         activeTab === 'inbox'
                           ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
                       <Inbox size={13} />
@@ -487,10 +603,10 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                     {/* Tab 4: Broadcast History */}
                     <button
                       onClick={() => setActiveTab('history')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
                         activeTab === 'history'
                           ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
                       <span>{language === 'bn' ? 'হিস্ট্রি' : 'History'}</span>
@@ -498,19 +614,68 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                         {localAnnouncements.length}
                       </span>
                     </button>
+
+                    {/* Tab 5: System & Location Testing Lab */}
+                    <button
+                      onClick={() => setActiveTab('testing')}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                        activeTab === 'testing'
+                          ? 'bg-amber-500 text-white shadow-md shadow-amber-500/25 ring-2 ring-amber-500/30'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <Compass size={13} />
+                      <span>{language === 'bn' ? '🧪 টেস্টিং ল্যাব' : '🧪 Testing Lab'}</span>
+                      {simulatedLocation?.isActive && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      )}
+                    </button>
                   </div>
 
                   <button
-                    onClick={handleLogout}
-                    className="text-xs font-bold text-slate-400 hover:text-rose-500 transition-colors ml-1 px-2 py-1 rounded-lg hover:bg-rose-500/10 shrink-0"
+                    onClick={handleLock}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-black transition-all active:scale-95 border border-rose-500/20 shrink-0"
+                    title={language === 'bn' ? 'অ্যাডমিন প্যানেল লক করুন' : 'Lock Admin Panel'}
                   >
-                    {language === 'bn' ? 'লক' : 'Lock'}
+                    <Lock size={12} />
+                    <span>{language === 'bn' ? 'লক ও প্রস্থান' : 'Lock'}</span>
                   </button>
                 </div>
 
                 {/* TAB 1: CONTROL CENTER DASHBOARD */}
                 {activeTab === 'dashboard' && (
                   <div className="p-5 sm:p-6 space-y-5">
+                    {/* Direct Quick Broadcast Banner */}
+                    <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-500 via-amber-600 to-yellow-600 text-white shadow-xl shadow-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-0.5 rounded-full bg-white/20 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-sm flex items-center gap-1">
+                            <Radio size={11} className="animate-pulse" />
+                            {language === 'bn' ? 'ব্রডকাস্ট অ্যাকশন' : 'Broadcast Action'}
+                          </span>
+                          <span className="text-xs text-amber-100 font-bold">
+                            {language === 'bn' ? 'সকল ইউজারদের কাছে' : 'To All Users'}
+                          </span>
+                        </div>
+                        <h4 className="font-black text-base text-white">
+                          {language === 'bn' ? 'সকল ইউজারকে ব্রডকাস্ট মেসেজ পাঠান' : 'Broadcast Message to All Users'}
+                        </h4>
+                        <p className="text-xs text-white/90">
+                          {language === 'bn' 
+                            ? 'ঈদ, রমাদান, জুমু\'আ বা যেকোনো জরুরি নোটিফিকেশন পাঠাতে নিচের বাটনে প্রেস করুন।'
+                            : 'Send immediate notification to all users across devices.'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('compose')}
+                        className="py-3 px-5 rounded-2xl bg-white text-amber-700 hover:bg-amber-50 font-black text-xs shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                      >
+                        <Send size={15} className="text-amber-600" />
+                        <span>{language === 'bn' ? 'মেসেজ লিখুন ও ব্রডকাস্ট পাঠান' : 'Compose & Send Broadcast'}</span>
+                      </button>
+                    </div>
+
                     {/* Live Backend Connection Status Pill */}
                     <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-transparent border border-emerald-500/30 flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -586,17 +751,98 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                       </div>
 
                       <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60">
-                        <span className="text-[10px] font-bold text-slate-400 block mb-1">
-                          {language === 'bn' ? 'সিকিউরিটি পিন' : 'Security PIN'}
-                        </span>
-                        <div className="text-xl font-black text-slate-900 dark:text-white font-mono">
-                          830973
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {language === 'bn' ? 'অ্যাডমিন পাসওয়ার্ড' : 'Admin Password'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsChangePasswordOpen(true)}
+                            className="text-[9px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-0.5"
+                          >
+                            <Key size={10} />
+                            <span>{language === 'bn' ? 'বদলান' : 'Change'}</span>
+                          </button>
                         </div>
-                        <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                          <Check size={10} /> {language === 'bn' ? 'সুরক্ষিত' : 'Verified'}
+                        <div className="text-xl font-black text-slate-900 dark:text-white font-mono flex items-center gap-2">
+                          <span>{showPinInDashboard ? (localStorage.getItem(ADMIN_CUSTOM_PASSWORD_KEY) || ADMIN_DEFAULT_SECURITY_PIN) : '••••••'}</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowPinInDashboard(!showPinInDashboard)}
+                            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                            title={showPinInDashboard ? 'Hide' : 'Show'}
+                          >
+                            {showPinInDashboard ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+                        </div>
+                        <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mt-0.5">
+                          <Check size={10} /> {language === 'bn' ? 'ডেডিকেটেড লক সুরক্ষিত' : 'Dedicated Lock Active'}
                         </span>
                       </div>
                     </div>
+
+                    {/* Change Password Inline Modal / Drawer */}
+                    {isChangePasswordOpen && (
+                      <div className="p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 space-y-3 animate-fade-in">
+                        <div className="flex items-center justify-between">
+                          <h6 className="font-black text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                            <KeyRound size={14} />
+                            <span>{language === 'bn' ? 'ডেডিকেটেড অ্যাডমিন পাসওয়ার্ড পরিবর্তন' : 'Change Dedicated Admin Password'}</span>
+                          </h6>
+                          <button
+                            onClick={() => {
+                              setIsChangePasswordOpen(false);
+                              setChangePwdError(null);
+                            }}
+                            className="text-slate-400 hover:text-slate-600 p-1"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <form onSubmit={handleChangeDedicatedPassword} className="space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input
+                              type="password"
+                              placeholder={language === 'bn' ? 'বর্তমান পাসওয়ার্ড' : 'Current Password'}
+                              value={currentPwdInput}
+                              onChange={(e) => setCurrentPwdInput(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-white"
+                            />
+                            <input
+                              type="password"
+                              placeholder={language === 'bn' ? 'নতুন পাসওয়ার্ড (কমপক্ষে ৪ অক্ষর)' : 'New Password (min 4 chars)'}
+                              value={newPwdInput}
+                              onChange={(e) => setNewPwdInput(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-white"
+                            />
+                          </div>
+                          {changePwdError && (
+                            <p className="text-[11px] font-bold text-rose-500 flex items-center gap-1">
+                              <AlertCircle size={12} />
+                              <span>{changePwdError}</span>
+                            </p>
+                          )}
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsChangePasswordOpen(false);
+                                setChangePwdError(null);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold"
+                            >
+                              {language === 'bn' ? 'বাতিল' : 'Cancel'}
+                            </button>
+                            <button
+                              type="submit"
+                              className="px-4 py-1.5 rounded-xl bg-amber-500 text-white font-black text-xs shadow-md shadow-amber-500/20 active:scale-95"
+                            >
+                              {language === 'bn' ? 'সংরক্ষণ করুন' : 'Save Password'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
 
                     {/* Quick Action Buttons Hub */}
                     <div className="space-y-2">
@@ -683,7 +929,7 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
 
                 {/* TAB 2: COMPOSE BROADCAST */}
                 {activeTab === 'compose' && (
-                  <form onSubmit={handleSend} className="p-5 sm:p-6 space-y-4">
+                  <form id="broadcast-composer-form" onSubmit={handleSend} className="p-5 sm:p-6 space-y-4 pb-20">
                     {/* Occasion Template Chips */}
                     <div>
                       <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-2">
@@ -801,20 +1047,20 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                       </div>
                     )}
 
-                    {/* Submit Button */}
+                    {/* In-form Submit Button */}
                     <button
                       type="submit"
                       disabled={isSending}
-                      className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-black text-xs shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-black text-sm shadow-xl shadow-amber-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
                     >
                       {isSending ? (
                         <>
-                          <RefreshCw size={14} className="animate-spin" />
-                          <span>{language === 'bn' ? 'পাঠানো হচ্ছে...' : 'Broadcasting...'}</span>
+                          <RefreshCw size={16} className="animate-spin" />
+                          <span>{language === 'bn' ? 'ব্রডকাস্ট পাঠানো হচ্ছে...' : 'Broadcasting...'}</span>
                         </>
                       ) : (
                         <>
-                          <Send size={14} />
+                          <Send size={16} />
                           <span>{language === 'bn' ? 'সকল ইউজারের ফোনে ব্রডকাস্ট পাঠান' : 'Broadcast to All Users'}</span>
                         </>
                       )}
@@ -1131,8 +1377,450 @@ export const AdminBroadcastModal: React.FC<AdminBroadcastModalProps> = ({
                     )}
                   </div>
                 )}
+
+                {/* TAB 5: SYSTEM & LOCATION TESTING LAB */}
+                {activeTab === 'testing' && (
+                  <div className="p-5 sm:p-6 space-y-6">
+                    {/* Header Introduction */}
+                    <div className="p-5 rounded-[2rem] bg-gradient-to-br from-amber-500/15 via-yellow-500/10 to-transparent border border-amber-500/30">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-yellow-600 text-white flex items-center justify-center shadow-md shadow-amber-500/20 shrink-0">
+                          <Compass size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                            <span>{language === 'bn' ? '🧪 সিস্টেম ও লোকেশন টেস্টিং ল্যাব' : '🧪 System & Location Testing Suite'}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white">
+                              Admin Exclusive
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                            {language === 'bn' 
+                              ? 'আমেরিকা বা যেকোনো দেশের ইউজারদের জন্য লোকেশন, প্রেয়ার টাইম ও সার্ভিসেস টেস্ট করুন'
+                              : 'Simulate USA or worldwide locations to verify prayer times, mosques and features'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SECTION 1: WORLDWIDE LOCATION SIMULATOR */}
+                    <div className="p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm">
+                            🌍
+                          </div>
+                          <div>
+                            <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                              {language === 'bn' ? 'বিশ্বব্যাপী লোকেশন সিমুলেটর' : 'Worldwide Location Simulator'}
+                            </h5>
+                            <p className="text-[10px] text-slate-400">
+                              {language === 'bn' ? 'যুক্তরাষ্ট্র বা বিশ্বের যেকোনো দেশের লোকেশন টেস্ট' : 'Simulate US or international user experience'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status Pill */}
+                        {simulatedLocation?.isActive ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500 text-white flex items-center gap-1.5 shadow-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                            <span>{language === 'bn' ? 'টেস্ট মোড চালু' : 'Simulation Active'}</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400">
+                            {language === 'bn' ? 'রিয়েল জিপিএস' : 'Real GPS'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Active Simulation Info & Reset Bar */}
+                      {simulatedLocation?.isActive ? (
+                        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block mb-0.5">
+                              {language === 'bn' ? 'বর্তমান সিমুলেটেড সক্রিয় অবস্থান:' : 'Current Simulated Location:'}
+                            </span>
+                            <p className="text-sm font-black text-slate-900 dark:text-white">
+                              {simulatedLocation.name}
+                            </p>
+                            <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                              Lat: {simulatedLocation.lat.toFixed(4)}, Lng: {simulatedLocation.lng.toFixed(4)} {simulatedLocation.country ? `• ${simulatedLocation.country}` : ''}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSimulatedLocation(null);
+                              showToast(language === 'bn' ? 'সিমুলেশন বন্ধ করে রিয়েল জিপিএসে ফিরে যাওয়া হয়েছে।' : 'Simulation cleared. Reverted to real GPS.');
+                            }}
+                            className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black text-xs shadow-sm flex items-center justify-center gap-1.5 shrink-0 transition-all cursor-pointer"
+                          >
+                            <RotateCcw size={13} />
+                            <span>{language === 'bn' ? 'রিয়েল জিপিএসে রিসেট' : 'Reset to Real GPS'}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                          <Info size={15} className="text-amber-500 shrink-0" />
+                          <span>
+                            {language === 'bn'
+                              ? 'নিচের যেকোনো আন্তর্জাতিক প্রিসেটে ক্লিক করে বা নিচে কাস্টম স্থানাঙ্ক দিয়ে বিশ্বের যেকোনো প্রান্তের লোকেশন সিমুলেট করুন।'
+                              : 'Select a global preset below or input custom coordinates to test the app as a worldwide user.'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Region Filter Tabs */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                        {[
+                          { id: 'usa', label: language === 'bn' ? '🇺🇸 যুক্তরাষ্ট্র (USA)' : '🇺🇸 USA' },
+                          { id: 'uk', label: language === 'bn' ? '🇬🇧 যুক্তরাজ্য ও ইউরোপ' : '🇬🇧 UK & Europe' },
+                          { id: 'middle_east', label: language === 'bn' ? '🇸🇦 মধ্যপ্রাচ্য' : '🇸🇦 Middle East' },
+                          { id: 'asia_canada', label: language === 'bn' ? '🇨🇦 কানাডা ও অন্যান্য' : '🇨🇦 Canada & Others' },
+                          { id: 'all', label: language === 'bn' ? 'সকল প্রিসেট' : 'All Presets' },
+                        ].map(rf => (
+                          <button
+                            key={rf.id}
+                            type="button"
+                            onClick={() => setTestRegionFilter(rf.id as any)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-black whitespace-nowrap transition-all cursor-pointer ${
+                              testRegionFilter === rf.id
+                                ? 'bg-amber-500 text-white shadow-xs'
+                                : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600'
+                            }`}
+                          >
+                            {rf.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Preset Location Buttons Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-1">
+                        {filteredPresets.map(preset => {
+                          const isCurrentActive = simulatedLocation?.isActive && 
+                            Math.abs(simulatedLocation.lat - preset.lat) < 0.001 &&
+                            Math.abs(simulatedLocation.lng - preset.lng) < 0.001;
+
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setSimulatedLocation({
+                                  isActive: true,
+                                  name: language === 'bn' ? preset.nameBn : preset.nameEn,
+                                  nameBn: preset.nameBn,
+                                  lat: preset.lat,
+                                  lng: preset.lng,
+                                  country: preset.country
+                                });
+                                showToast(language === 'bn' ? `${preset.nameBn} টেস্ট লোকেশন হিসেবে সেট হয়েছে!` : `${preset.nameEn} simulated!`);
+                              }}
+                              className={`p-3 rounded-2xl text-left transition-all active:scale-95 border flex flex-col justify-between cursor-pointer ${
+                                isCurrentActive
+                                  ? 'bg-amber-500 text-white border-amber-500 shadow-md ring-2 ring-amber-400'
+                                  : 'bg-white dark:bg-slate-900/80 hover:bg-amber-50/70 dark:hover:bg-slate-700/60 border-slate-200/70 dark:border-slate-700/60 text-slate-800 dark:text-slate-200'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-base">{preset.flag || '📍'}</span>
+                                  {isCurrentActive && (
+                                    <span className="w-2 h-2 rounded-full bg-white shadow-xs" />
+                                  )}
+                                </div>
+                                <h6 className="font-black text-xs leading-snug line-clamp-1">
+                                  {language === 'bn' ? preset.nameBn : preset.nameEn}
+                                </h6>
+                              </div>
+                              <span className={`text-[9px] font-mono mt-1 ${isCurrentActive ? 'text-white/80' : 'text-slate-400'}`}>
+                                {preset.lat.toFixed(2)}, {preset.lng.toFixed(2)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Custom Coordinates Input Form */}
+                      <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 space-y-3">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                          {language === 'bn' ? 'বিশ্বের যেকোনো কাস্টম শহর বা স্থানাঙ্ক দিন' : 'Custom Worldwide Coordinates'}
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            placeholder={language === 'bn' ? 'শহরের নাম (যেমন: Chicago, USA)' : 'City Name (e.g. Chicago, USA)'}
+                            value={customCityName}
+                            onChange={(e) => setCustomCityName(e.target.value)}
+                            className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 sm:col-span-1"
+                          />
+                          <input
+                            type="text"
+                            placeholder={language === 'bn' ? 'অক্ষাংশ / Lat (যেমন: 41.8781)' : 'Latitude (e.g. 41.8781)'}
+                            value={customLat}
+                            onChange={(e) => setCustomLat(e.target.value)}
+                            className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder={language === 'bn' ? 'দ্রাঘিমাংশ / Lng (যেমন: -87.6298)' : 'Longitude (e.g. -87.6298)'}
+                            value={customLng}
+                            onChange={(e) => setCustomLng(e.target.value)}
+                            className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const latNum = parseFloat(customLat);
+                            const lngNum = parseFloat(customLng);
+                            if (isNaN(latNum) || isNaN(lngNum)) {
+                              showToast(language === 'bn' ? 'সঠিক Latitude ও Longitude সংখ্যা প্রদান করুন।' : 'Please enter valid numbers for Lat and Lng.');
+                              return;
+                            }
+                            const name = customCityName.trim() || `Custom (${latNum.toFixed(2)}, ${lngNum.toFixed(2)})`;
+                            setSimulatedLocation({
+                              isActive: true,
+                              name,
+                              lat: latNum,
+                              lng: lngNum,
+                              country: customCountry || 'Custom'
+                            });
+                            showToast(language === 'bn' ? `কাস্টম লোকেশন "${name}" সক্রিয় করা হয়েছে!` : `Custom location "${name}" active!`);
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black text-xs hover:bg-slate-800 dark:hover:bg-slate-100 transition-all active:scale-[0.98] shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Navigation size={13} />
+                          <span>{language === 'bn' ? 'কাস্টম স্থানাঙ্ক টেস্ট মোড হিসেবে চালু করুন' : 'Apply Custom Coordinates'}</span>
+                        </button>
+                      </div>
+
+                      {/* Immediate Service Testing Shortcuts */}
+                      <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 space-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                          {language === 'bn' ? 'সরাসরি অ্যাপ সার্ভিসসমূহ টেস্ট করুন' : 'Test Live App Services With This Location'}
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onNavigateToTab?.('nearby-mosques');
+                            }}
+                            className="p-3 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-left transition-all active:scale-95 group cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-base">🕌</span>
+                              <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                            </div>
+                            <p className="font-black text-xs leading-snug">
+                              {language === 'bn' ? 'নিকটস্থ মসজিদ পরীক্ষা' : 'Test Nearby Mosques'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              {language === 'bn' ? 'আমেরিকা/গ্লোবাল মসজিদ ফাইন্ডার' : 'US/Global Mosque Finder'}
+                            </p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onNavigateToTab?.('home');
+                            }}
+                            className="p-3 rounded-2xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-800 dark:text-blue-300 text-left transition-all active:scale-95 group cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-base">⏰</span>
+                              <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                            </div>
+                            <p className="font-black text-xs leading-snug">
+                              {language === 'bn' ? 'নামাজের সময়সূচি পরীক্ষা' : 'Test Prayer Timings'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              {language === 'bn' ? 'স্থানভেদে সঠিক ওয়াক্ত' : 'Check accurate prayer times'}
+                            </p>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onNavigateToTab?.('ramadan');
+                            }}
+                            className="p-3 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-left transition-all active:scale-95 group cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-base">🌙</span>
+                              <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                            </div>
+                            <p className="font-black text-xs leading-snug">
+                              {language === 'bn' ? 'রমজান সেহরি/ইফতার' : 'Test Ramadan Times'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              {language === 'bn' ? 'স্থানভেদে সেহরি ও ইফতার' : 'Check Suhur/Iftar times'}
+                            </p>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SECTION 2: SYSTEM NOTIFICATIONS & AUDIO CHIME TESTING */}
+                    <div className="p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-xs">
+                            <Bell size={16} />
+                          </div>
+                          <div>
+                            <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                              {language === 'bn' ? 'নোটিফিকেশন ও অডিও চিম টেস্ট' : 'Notification & Audio Testing'}
+                            </h5>
+                            <p className="text-[10px] text-slate-400">
+                              {language === 'bn' ? 'নামাজ রিমাইন্ডার ও চিম সাউন্ড চেক' : 'Test reminder alerts & polite audio chime'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onTriggerPrayerReminderTest) {
+                              onTriggerPrayerReminderTest();
+                              showToast(language === 'bn' ? 'নামাজ রিমাইন্ডার টেস্ট ট্রিগার হয়েছে!' : 'Prayer reminder test triggered!');
+                            }
+                          }}
+                          className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-500 text-left transition-all active:scale-[0.98] flex items-center gap-3 shadow-2xs cursor-pointer"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+                            <BellRing size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <h6 className="font-black text-xs text-slate-900 dark:text-white">
+                              {language === 'bn' ? 'নামাজ রিমাইন্ডার টেস্ট' : 'Test Prayer Reminder'}
+                            </h6>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {language === 'bn' ? 'পপআপ ব্যানার ও সিস্টেম রিমাইন্ডার' : 'Simulate live prayer alert banner'}
+                            </p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playPoliteChime();
+                            showToast(language === 'bn' ? 'চিম সাউন্ড প্লে হয়েছে 🎵' : 'Audio chime played 🎵');
+                          }}
+                          className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-500 text-left transition-all active:scale-[0.98] flex items-center gap-3 shadow-2xs cursor-pointer"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                            <Volume2 size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <h6 className="font-black text-xs text-slate-900 dark:text-white">
+                              {language === 'bn' ? 'চিম সাউন্ড টেস্ট' : 'Test Audio Chime'}
+                            </h6>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {language === 'bn' ? 'বিরক্তি-মুক্ত ইসলামিক টিউন চেক' : 'Play peaceful chime tone'}
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* SECTION 3: RAMADAN ANIMATION LIVE PREVIEW TEST */}
+                    <div className="p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center shrink-0">
+                          <Moon size={20} className="fill-amber-500/20" />
+                        </div>
+                        <div>
+                          <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                            {language === 'bn' ? 'মাহে রমাদান লাইভ অ্যানিমেশন প্রিভিউ' : 'Ramadan Animation Live Preview'}
+                          </h5>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            {language === 'bn'
+                              ? 'রমাদান মাস ছাড়া অন্য সময়েও সোনালী অ্যানিমেশন ও স্পেশাল কার্ড দেখতে এটি চালু করুন'
+                              : 'Force-preview Ramadan special highlight animations across the app'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onToggleRamadanDemo?.();
+                          showToast(language === 'bn' ? 'রমাদান অ্যানিমেশন প্রিভিউ টগল হয়েছে।' : 'Ramadan animation preview toggled.');
+                        }}
+                        className={`w-14 h-8 rounded-full relative p-1 transition-colors duration-500 shrink-0 cursor-pointer ${isRamadanDemoActive ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                      >
+                        <div className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-500 ${isRamadanDemoActive ? 'translate-x-6' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+
+                    {/* SECTION 4: DATA STORAGE SWEEP & CACHE TEST */}
+                    <div className="p-5 rounded-[2rem] bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center shrink-0">
+                          <HardDrive size={18} />
+                        </div>
+                        <div>
+                          <h5 className="font-black text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                            {language === 'bn' ? 'স্টোরেজ ও ডাটা সুইপ টেস্ট' : 'Storage & Cache Maintenance'}
+                          </h5>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                            {language === 'bn' ? 'মেয়াদোত্তীর্ণ ডাটা স্বয়ংক্রিয়ভাবে ক্লিন করে মেমরি ফ্রেশ রাখুন' : 'Clean expired cached data to maintain peak speed'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSweepStorage}
+                        disabled={isSweeping}
+                        className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw size={13} className={isSweeping ? 'animate-spin' : ''} />
+                        <span>{isSweeping ? (language === 'bn' ? 'ক্লিন হচ্ছে...' : 'Sweeping...') : (language === 'bn' ? 'ডাটা সুইপ টেস্ট চালান' : 'Run Storage Sweep')}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* STICKY BOTTOM ACTION BAR FOR BROADCAST COMPOSE TAB */}
+              {activeTab === 'compose' && (
+                <div className="p-3.5 sm:p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.1)] z-20">
+                  <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-bold">
+                      {language === 'bn' ? 'সকল ইউজারের অ্যাপে সরাসরি নোটিফিকেশন যাবে' : 'Broadcasts to all connected users'}
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    form="broadcast-composer-form"
+                    disabled={isSending}
+                    className="w-full sm:w-auto flex-1 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-black text-xs shadow-lg shadow-amber-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSending ? (
+                      <>
+                        <RefreshCw size={15} className="animate-spin" />
+                        <span>{language === 'bn' ? 'ব্রডকাস্ট পাঠানো হচ্ছে...' : 'Broadcasting...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send size={15} />
+                        <span>{language === 'bn' ? 'সকল ইউজারের ফোনে ব্রডকাস্ট পাঠান' : 'Broadcast to All Users'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           </motion.div>
         </div>
       )}

@@ -20,6 +20,11 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
   const t = UI_TRANSLATIONS[langKey] || UI_TRANSLATIONS.en;
   const isBn = langKey === 'bn';
 
+  const onCompleteRef = React.useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
   useEffect(() => {
     // Smooth progress bar fill
     const interval = setInterval(() => {
@@ -28,20 +33,20 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
           clearInterval(interval);
           return 100;
         }
-        return prev + 5;
+        return prev + 10;
       });
-    }, 80);
+    }, 60);
 
-    // Auto-dismiss after 2.4s
+    // Auto-dismiss after 900ms for instant app launch
     const timer = setTimeout(() => {
-      onComplete();
-    }, 2400);
+      onCompleteRef.current();
+    }, 900);
 
     return () => {
       clearInterval(interval);
       clearTimeout(timer);
     };
-  }, [onComplete]);
+  }, []);
 
   return (
     <motion.div 

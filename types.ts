@@ -161,3 +161,14 @@ export interface NotificationPreferences {
   soundEnabled: boolean;
   bannerPopup: boolean;
 }
+
+export interface SimulatedLocation {
+  isActive: boolean;
+  name: string;
+  nameBn?: string;
+  lat: number;
+  lng: number;
+  country?: string;
+  countryCode?: string;
+  timezone?: string;
+}

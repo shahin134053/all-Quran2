@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   ArrowLeft, Search, Volume2, CheckCircle2, Circle, 
-  Sparkles, Award, Star, Info, Share2, Copy, Check
+  Sparkles, Award, Star, Info, Share2, Copy, Check, Languages
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { playAudioText, stopAllAudio } from '../utils/audioHelper';
 import { AppLanguage } from '../types';
 
 export interface AllahName {
@@ -263,6 +264,7 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'memorized' | 'remaining'>('all');
   const [playingId, setPlayingId] = useState<number | null>(null);
+  const [playingType, setPlayingType] = useState<'arabic' | 'meaning' | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const [memorizedIds, setMemorizedIds] = useState<number[]>(() => {
@@ -289,22 +291,35 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
     });
   };
 
-  const handleSpeak = (name: AllahName) => {
-    if ('speechSynthesis' in window) {
-      if (playingId === name.id) {
-        window.speechSynthesis.cancel();
-        setPlayingId(null);
-        return;
-      }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(name.arabic);
-      utterance.lang = 'ar-SA';
-      utterance.rate = 0.85;
-      utterance.onend = () => setPlayingId(null);
-      utterance.onerror = () => setPlayingId(null);
-      setPlayingId(name.id);
-      window.speechSynthesis.speak(utterance);
+  const handleSpeak = (name: AllahName, type: 'arabic' | 'meaning' = 'arabic') => {
+    if (playingId === name.id && playingType === type) {
+      stopAllAudio();
+      setPlayingId(null);
+      setPlayingType(null);
+      return;
     }
+
+    setPlayingId(name.id);
+    setPlayingType(type);
+
+    const textToSpeak = type === 'arabic'
+      ? name.arabic
+      : `${name.transliterationBn}। অর্থ: ${name.meaningBn}`;
+
+    const lang = type === 'arabic'
+      ? 'ar'
+      : (language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : 'en'));
+
+    playAudioText(textToSpeak, lang, {
+      onEnd: () => {
+        setPlayingId(null);
+        setPlayingType(null);
+      },
+      onError: () => {
+        setPlayingId(null);
+        setPlayingType(null);
+      }
+    });
   };
 
   const handleCopy = (name: AllahName) => {
@@ -469,15 +484,27 @@ export const AsmaulHusnaView: React.FC<AsmaulHusnaViewProps> = ({ setActiveTab }
 
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => handleSpeak(name)}
-                    title={t.listenTooltip}
+                    onClick={() => handleSpeak(name, 'arabic')}
+                    title="আরবি উচ্চারণ শুনুন"
                     className={`p-2 rounded-xl transition-all ${
-                      playingId === name.id 
+                      playingId === name.id && playingType === 'arabic'
                         ? 'bg-emerald-600 text-white animate-pulse' 
                         : 'bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-emerald-600'
                     }`}
                   >
                     <Volume2 size={15} />
+                  </button>
+
+                  <button
+                    onClick={() => handleSpeak(name, 'meaning')}
+                    title="বাংলা অর্থ শুনুন"
+                    className={`p-2 rounded-xl transition-all ${
+                      playingId === name.id && playingType === 'meaning'
+                        ? 'bg-amber-600 text-white animate-pulse' 
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200/60 dark:border-amber-800/40'
+                    }`}
+                  >
+                    <Languages size={15} />
                   </button>
 
                   <button

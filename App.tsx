@@ -11,7 +11,7 @@ import {
   ChevronRight, Search, Bookmark as BookmarkIcon, 
   Settings as SettingsIcon, Play, BookOpen, 
   ArrowLeft, Plus, Minus, Moon, Sun, BookmarkCheck,
-  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity, Brain, ArrowUpCircle, Sparkles, Palette, Bell, BellRing, Send, ShieldCheck, Bookmark, Calculator, Target, HelpCircle
+  Globe, LayoutGrid, Sliders, X, Clock, MapPin, Calendar, Headphones, Quote, RefreshCw, Info, ChevronDown, ChevronUp, User, Download, HardDrive, Trash2, CheckCircle2, Heart, Code, Mail, Copy, Activity, Brain, ArrowUpCircle, Sparkles, Palette, Bell, BellRing, Send, ShieldCheck, Bookmark, Calculator, Target, HelpCircle, Lock
 } from 'lucide-react';
 import AudioPlayer from './components/AudioPlayer';
 import TasbihView from './components/TasbihView';
@@ -36,6 +36,9 @@ import { AyahSocialCardModal, AyahCardData } from './components/AyahSocialCardMo
 import { AnimatedSplashScreen } from './components/AnimatedSplashScreen';
 import { AppIcon } from './components/AppIcon';
 import { AppGuideModal } from './components/AppGuideModal';
+import { LocationModal } from './components/LocationModal';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { resolveFriendlyLocationName, detectLocationFromGPS, detectLocationFromIP } from './services/locationService';
 import { 
   subscribeAnnouncements, 
   getReadAnnouncementIds, 
@@ -212,9 +215,10 @@ const OfflineManager: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
+  const [previousTab, setPreviousTab] = useState('home');
   const [surahs, setSurahs] = useState<SurahMetadata[]>([]);
   const [selectedSurah, setSelectedSurah] = useState<SurahDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -226,6 +230,27 @@ const AppContent: React.FC = () => {
   // States for dynamic data
   const [prayerData, setPrayerData] = useState<{ timings: PrayerTimings, hijri: HijriDate } | null>(null);
   const [locationName, setLocationName] = useState('');
+  const [userCoordinates, setUserCoordinates] = useState<{ lat: number; lng: number }>(() => {
+    try {
+      const rawSim = localStorage.getItem('al_muneer_test_location');
+      if (rawSim) {
+        const parsed = JSON.parse(rawSim);
+        if (parsed?.isActive && typeof parsed?.lat === 'number' && typeof parsed?.lng === 'number') {
+          return { lat: parsed.lat, lng: parsed.lng };
+        }
+      }
+      const raw = localStorage.getItem('user_saved_location');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.lat === 'number' && typeof parsed?.lng === 'number') {
+          return { lat: parsed.lat, lng: parsed.lng };
+        }
+      }
+    } catch {}
+    return { lat: 23.8103, lng: 90.4125 };
+  });
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [isRefreshingGPS, setIsRefreshingGPS] = useState(false);
   const [ramadanDays, setRamadanDays] = useState<number | null>(null);
   const [currentHadith, setCurrentHadith] = useState<Hadith | null>(null);
   const [ramadanCalendar, setRamadanCalendar] = useState<any[]>([]);
@@ -305,7 +330,8 @@ const AppContent: React.FC = () => {
     translationFontSize, setTranslationFontSize,
     bookmarks, addBookmark, removeBookmark,
     lastRead, updateLastRead,
-    userName, setUserName
+    userName, setUserName,
+    simulatedLocation, setSimulatedLocation
   } = useApp();
 
   const t = UI_TRANSLATIONS[language];
@@ -316,46 +342,259 @@ const AppContent: React.FC = () => {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
+  const handleSelectLocation = async (loc: { name: string; lat: number; lng: number }) => {
+    setLocationName(loc.name);
+    setUserCoordinates({ lat: loc.lat, lng: loc.lng });
+    try {
+      localStorage.setItem('user_saved_location', JSON.stringify(loc));
+    } catch {}
+    try {
+      const data = await fetchPrayerTimings(loc.lat, loc.lng);
+      setPrayerData(data);
+      setRamadanDays(getRamadanCountdown(data.hijri));
+      const currentHijriYear = parseInt(data.hijri.year);
+      fetchRamadanCalendar(loc.lat, loc.lng, currentHijriYear).then(cal => setRamadanCalendar(cal));
+    } catch (e) {
+      console.warn("Error fetching prayers for selected location:", e);
+    }
+  };
+
+  const handleRefreshGPS = () => {
+    if (!("geolocation" in navigator)) return;
+    setIsRefreshingGPS(true);
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const { latitude, longitude } = position.coords;
+      setUserCoordinates({ lat: latitude, lng: longitude });
+      const detected = await detectLocationFromGPS(latitude, longitude, language);
+      const friendlyName = detected.name;
+      setLocationName(friendlyName);
+      try {
+        localStorage.setItem('user_saved_location', JSON.stringify({ name: friendlyName, lat: latitude, lng: longitude }));
+      } catch {}
+      try {
+        const data = await fetchPrayerTimings(latitude, longitude);
+        setPrayerData(data);
+        setRamadanDays(getRamadanCountdown(data.hijri));
+        const currentHijriYear = parseInt(data.hijri.year);
+        fetchRamadanCalendar(latitude, longitude, currentHijriYear).then(cal => setRamadanCalendar(cal));
+      } catch (e) {
+        console.warn("Prayer update error:", e);
+      }
+      setIsRefreshingGPS(false);
+    }, (err) => {
+      console.warn("GPS error:", err);
+      setIsRefreshingGPS(false);
+    }, { timeout: 10000, enableHighAccuracy: true });
+  };
+
+  // Reactive effect for Simulated Location set by Admin
+  useEffect(() => {
+    if (simulatedLocation && simulatedLocation.isActive) {
+      setLocationName(simulatedLocation.name);
+      setUserCoordinates({ lat: simulatedLocation.lat, lng: simulatedLocation.lng });
+      fetchPrayerTimings(simulatedLocation.lat, simulatedLocation.lng).then(data => {
+        setPrayerData(data);
+        setRamadanDays(getRamadanCountdown(data.hijri));
+        const currentHijriYear = parseInt(data.hijri.year);
+        fetchRamadanCalendar(simulatedLocation.lat, simulatedLocation.lng, currentHijriYear).then(cal => setRamadanCalendar(cal));
+      }).catch(err => console.warn('Prayer fetch for simulated location error:', err));
+    }
+  }, [simulatedLocation]);
+
+  const handleTriggerPrayerReminderTest = async () => {
+    await requestSystemNotificationPermission();
+    
+    const now = new Date();
+    const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+    const timings = prayerData?.timings || {
+      Fajr: '05:00',
+      Dhuhr: '12:05',
+      Asr: '15:30',
+      Maghrib: '17:35',
+      Isha: '18:50'
+    };
+
+    const parseMins = (tStr: string, key: string) => {
+      if (!tStr) return 0;
+      const raw = tStr.trim().toLowerCase();
+      const isPM = raw.includes('pm');
+      const isAM = raw.includes('am');
+      const cleaned = raw.replace(/[^\d:]/g, '');
+      const [hStr, mStr] = cleaned.split(':');
+      let h = parseInt(hStr, 10) || 0;
+      const m = parseInt(mStr, 10) || 0;
+      if (isPM && h < 12) h += 12;
+      if (isAM && h === 12) h = 0;
+      if (!isPM && !isAM) {
+        if (key === 'Dhuhr' && h < 10) h += 12;
+        if (key === 'Asr' && h < 12) h += 12;
+        if (key === 'Maghrib' && h < 12) h += 12;
+        if (key === 'Isha' && h < 12) h += 12;
+      }
+      return h * 60 + m;
+    };
+
+    const formatTimeClean = (tStr: string) => tStr ? tStr.split(' ')[0] : '';
+
+    const fMins = parseMins(timings.Fajr, 'Fajr');
+    const dMins = parseMins(timings.Dhuhr, 'Dhuhr');
+    const aMins = parseMins(timings.Asr, 'Asr');
+    const mMins = parseMins(timings.Maghrib, 'Maghrib');
+    const iMins = parseMins(timings.Isha, 'Isha');
+
+    const prayers = {
+      Fajr: { nameBn: 'ফজর', nameEn: 'Fajr', time: formatTimeClean(timings.Fajr) },
+      Dhuhr: { nameBn: 'যোহর', nameEn: 'Dhuhr', time: formatTimeClean(timings.Dhuhr) },
+      Asr: { nameBn: 'আসর', nameEn: 'Asr', time: formatTimeClean(timings.Asr) },
+      Maghrib: { nameBn: 'মাগরিব', nameEn: 'Maghrib', time: formatTimeClean(timings.Maghrib) },
+      Isha: { nameBn: 'এশা', nameEn: 'Isha', time: formatTimeClean(timings.Isha) },
+    };
+
+    let currP = prayers.Isha;
+    let nextP = prayers.Fajr;
+
+    if (currentTimeMinutes >= fMins && currentTimeMinutes < dMins) {
+      currP = prayers.Fajr;
+      nextP = prayers.Dhuhr;
+    } else if (currentTimeMinutes >= dMins && currentTimeMinutes < aMins) {
+      currP = prayers.Dhuhr;
+      nextP = prayers.Asr;
+    } else if (currentTimeMinutes >= aMins && currentTimeMinutes < mMins) {
+      currP = prayers.Asr;
+      nextP = prayers.Maghrib;
+    } else if (currentTimeMinutes >= mMins && currentTimeMinutes < iMins) {
+      currP = prayers.Maghrib;
+      nextP = prayers.Isha;
+    } else {
+      currP = prayers.Isha;
+      nextP = prayers.Fajr;
+    }
+
+    const title = language === 'bn' 
+      ? `🕌 নামাজের রিমাইন্ডার টেস্ট: ${currP.nameBn}` 
+      : language === 'de' 
+      ? `Gebetszeit Test: ${currP.nameEn}` 
+      : language === 'es' 
+      ? `Prueba de oración: ${currP.nameEn}` 
+      : language === 'ar' 
+      ? `اختبار وقت الصلاة: ${currP.nameEn}` 
+      : language === 'hi' 
+      ? `नमाज़ का समय परीक्षण: ${currP.nameEn}` 
+      : `Prayer Time Test: ${currP.nameEn}`;
+
+    const body = language === 'bn' 
+      ? `আলহামদুলিল্লাহ! রিমাইন্ডার সফলভাবে কাজ করছে। বর্তমান ওয়াক্ত: ${currP.nameBn} (${currP.time}) • পরবর্তী ওয়াক্ত: ${nextP.nameBn} (${nextP.time})।` 
+      : language === 'de' 
+      ? `Alhamdulillah! Erinnerung funktioniert. Aktuelles Gebet: ${currP.nameEn} (${currP.time}) • Nächstes: ${nextP.nameEn} (${nextP.time}).` 
+      : language === 'es' 
+      ? `¡Alhamdulillah! Recordatorio funcionando. Oración actual: ${currP.nameEn} (${currP.time}) • Próxima: ${nextP.nameEn} (${nextP.time}).` 
+      : language === 'ar' 
+      ? `الحمد لله! تذكير الصلاة يعمل بنجاح. الوقت الحالي: ${currP.nameEn} (${currP.time}) • التالي: ${nextP.nameEn} (${nextP.time}).` 
+      : language === 'hi' 
+      ? `अलhamdulillah! अनुस्मारक काम कर रहा है। वर्तमान: ${currP.nameEn} (${currP.time}) • अगला: ${nextP.nameEn} (${nextP.time}).` 
+      : `Alhamdulillah! Prayer reminder test successful. Current: ${currP.nameEn} (${currP.time}) • Next: ${nextP.nameEn} (${nextP.time}).`;
+    
+    triggerSystemNotification(title, body);
+    playPoliteChime();
+
+    setLatestUnseenAnnouncement({
+      id: 'test-' + Date.now(),
+      title,
+      message: body,
+      occasion: 'ramadan',
+      priority: 'urgent',
+      senderName: 'Al-Muneer System',
+      senderEmail: 'system@almuneer.app',
+      createdAt: new Date().toISOString(),
+      isActive: true
+    });
+  };
+
   useEffect(() => {
 
     const loadData = async () => {
-      setIsLoading(true);
       try {
+        // Check for previously saved user location or active simulated location
+        let savedLoc: { name: string; lat: number; lng: number } | null = null;
+        try {
+          const raw = localStorage.getItem('user_saved_location');
+          if (raw) savedLoc = JSON.parse(raw);
+        } catch {}
+
+        const isSimulated = simulatedLocation && simulatedLocation.isActive;
+        const initialLat = isSimulated ? simulatedLocation.lat : (savedLoc ? savedLoc.lat : 21.4225);
+        const initialLng = isSimulated ? simulatedLocation.lng : (savedLoc ? savedLoc.lng : 39.8262);
+        const initialName = isSimulated ? simulatedLocation.name : (savedLoc ? savedLoc.name : (language === 'bn' ? 'মক্কা মুকাররমা' : 'Mecca, SA'));
+
         // Instant prayer data initialization to eliminate blank flash
-        fetchPrayerTimings(21.4225, 39.8262).then(defaultData => {
+        setUserCoordinates({ lat: initialLat, lng: initialLng });
+        fetchPrayerTimings(initialLat, initialLng).then(defaultData => {
           setPrayerData(prev => prev || defaultData);
           setRamadanDays(prev => prev ?? getRamadanCountdown(defaultData.hijri));
-          setLocationName(prev => prev || (language === 'bn' ? 'মক্কা মুকাররমা' : 'Mecca, SA'));
+          setLocationName(prev => prev || initialName);
         });
 
-        const surahData = await fetchSurahList();
-        setSurahs(surahData);
-        
-        if ("geolocation" in navigator) {
-          navigator.geolocation.getCurrentPosition(async (position) => {
-            const { latitude, longitude } = position.coords;
-            const data = await fetchPrayerTimings(latitude, longitude);
-            setPrayerData(data);
-            setRamadanDays(getRamadanCountdown(data.hijri));
-            setLocationName('Detected Location');
-            
-            // Fetch Ramadan Calendar for current Hijri year
-            const currentHijriYear = parseInt(data.hijri.year);
-            fetchRamadanCalendar(latitude, longitude, currentHijriYear).then(cal => setRamadanCalendar(cal));
-          }, () => {
-            fetchPrayerTimings(21.4225, 39.8262).then(data => {
+        // Instant non-blocking surah list initialization
+        fetchSurahList().then(surahData => {
+          setSurahs(surahData);
+          setIsLoading(false);
+        });
+
+        // Always auto-detect real device GPS for normal users (when not in Admin simulation)
+        if (!isSimulated && "geolocation" in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              const { latitude, longitude } = position.coords;
+              setUserCoordinates({ lat: latitude, lng: longitude });
+              const data = await fetchPrayerTimings(latitude, longitude);
               setPrayerData(data);
               setRamadanDays(getRamadanCountdown(data.hijri));
-              setLocationName('Mecca, SA');
+              const detected = await detectLocationFromGPS(latitude, longitude, language);
+              setLocationName(detected.name);
+              try {
+                localStorage.setItem('user_saved_location', JSON.stringify({ name: detected.name, lat: latitude, lng: longitude }));
+              } catch {}
               
+              // Fetch Ramadan Calendar for current Hijri year
               const currentHijriYear = parseInt(data.hijri.year);
-              fetchRamadanCalendar(21.4225, 39.8262, currentHijriYear).then(cal => setRamadanCalendar(cal));
-            });
-          });
+              fetchRamadanCalendar(latitude, longitude, currentHijriYear).then(cal => setRamadanCalendar(cal));
+            },
+            async () => {
+              // Geolocation denied, unavailable or timed out: Try free IP-based location detection
+              if (!savedLoc) {
+                const ipLoc = await detectLocationFromIP(language);
+                if (ipLoc) {
+                  setUserCoordinates({ lat: ipLoc.lat, lng: ipLoc.lng });
+                  setLocationName(ipLoc.name);
+                  try {
+                    localStorage.setItem('user_saved_location', JSON.stringify({ name: ipLoc.name, lat: ipLoc.lat, lng: ipLoc.lng }));
+                  } catch {}
+                  const data = await fetchPrayerTimings(ipLoc.lat, ipLoc.lng);
+                  setPrayerData(data);
+                  setRamadanDays(getRamadanCountdown(data.hijri));
+                  const currentHijriYear = parseInt(data.hijri.year);
+                  fetchRamadanCalendar(ipLoc.lat, ipLoc.lng, currentHijriYear).then(cal => setRamadanCalendar(cal));
+                  return;
+                }
+              }
+              // If saved location or IP fallback failed, keep saved or holy sanctuary
+              if (!savedLoc) {
+                fetchPrayerTimings(21.4225, 39.8262).then(data => {
+                  setPrayerData(data);
+                  setRamadanDays(getRamadanCountdown(data.hijri));
+                  setLocationName(language === 'bn' ? 'মক্কা মুকাররমা' : 'Mecca, SA');
+                  setUserCoordinates({ lat: 21.4225, lng: 39.8262 });
+                  
+                  const currentHijriYear = parseInt(data.hijri.year);
+                  fetchRamadanCalendar(21.4225, 39.8262, currentHijriYear).then(cal => setRamadanCalendar(cal));
+                });
+              }
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+          );
         }
         
-        const hadith = await fetchRandomHadith();
-        setCurrentHadith(hadith);
+        fetchRandomHadith().then(hadith => setCurrentHadith(hadith));
       } catch (err) {
         console.error(err);
       } finally {
@@ -486,6 +725,21 @@ const AppContent: React.FC = () => {
               : `Blessed Friday! Special Amols after Fajr: 1. Read Surah Al-Kahf, 2. Send Durood, 3. Gusl & Miswak, 4. Dua after Asr.`;
             
             triggerSystemNotification(fridayTitle, fridayBody);
+            playPoliteChime();
+          }
+        }
+
+        const dhuhrTime = normalizePrayerTimeTo24H(timings.Dhuhr, 'Dhuhr');
+        if (dhuhrTime && currentTimeStr === dhuhrTime) {
+          const jummahPrayerKey = `al_muneer_jummah_prayer_${todayDateStr}`;
+          const alreadyFiredJummah = localStorage.getItem(jummahPrayerKey);
+          if (!alreadyFiredJummah) {
+            localStorage.setItem(jummahPrayerKey, 'true');
+            const jummahTitle = language === 'bn' ? `🕌 পবিত্র জুমার সালাতের রিমাইন্ডার` : `🕌 Blessed Jummah Prayer Reminder`;
+            const jummahBody = language === 'bn'
+              ? `আজ পবিত্র জুমার দিন! খুতবা ও জুমার জামাতে অংশগ্রহণের জন্য নিকটস্থ মসজিদে গমন করুন।`
+              : `Today is Jummah! Please prepare and proceed to your nearest mosque for the khutbah and Jummah prayer.`;
+            triggerSystemNotification(jummahTitle, jummahBody);
             playPoliteChime();
           }
         }
@@ -674,60 +928,70 @@ const AppContent: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
-      <header className="flex justify-between items-center px-1">
-        <div className="flex items-center gap-2">
+      <header className="flex justify-between items-center px-1 py-1">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div 
             onClick={() => setShowSplash(true)}
             className="cursor-pointer active:scale-90 transition-transform shrink-0" 
             title={language === 'bn' ? 'লোগো অ্যানিমেশন দেখুন' : 'Replay App Intro'}
           >
-            <AppIcon size={36} animated={false} />
+            <AppIcon size={34} animated={false} />
           </div>
 
-          {/* Upgraded Crystal-Clear Nearby Mosques Location Button */}
-          <button 
-            onClick={() => setActiveTab('nearby-mosques')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300 shadow-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-all active:scale-95 group text-left"
-            title={language === 'bn' ? 'ট্যাপ করুন: আপনার অবস্থান থেকে ৩০০ কিমি দূরত্বের মসজিদসমূহ দেখুন' : 'Tap to find nearby mosques within 300 km'}
-          >
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <MapPin size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
-            <span className="text-[11px] font-bold truncate max-w-[80px] sm:max-w-[110px]">
-              {locationName || (language === 'bn' ? 'বর্তমান অবস্থান' : 'Location')}
-            </span>
-            <span className="text-[10px] text-emerald-600/60 dark:text-emerald-400/60 font-semibold">•</span>
-            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
-              <span>🕌 {language === 'bn' ? 'কাছের মসজিদ' : 'Mosques'}</span>
-              <ChevronRight size={11} className="group-hover:translate-x-0.5 transition-transform" />
-            </span>
-          </button>
+          <div className="min-w-0">
+            <h1 className="text-sm font-black tracking-tight text-slate-800 dark:text-slate-100 leading-tight truncate">
+              {language === 'bn' ? 'আল-শাহিন কুরআন' : 'Al-Shahin Quran'}
+            </h1>
+            {/* Space-saving Location Indicator (Click to change/refresh GPS or pick city) */}
+            <button 
+              onClick={() => setIsLocationModalOpen(true)}
+              className="flex items-center gap-1.5 mt-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors active:scale-95 group text-left max-w-full"
+              title={language === 'bn' ? 'নামাজের অবস্থান পরিবর্তন বা জিপিএস রিফ্রেশ করতে ট্যাপ করুন' : 'Tap to change or refresh location'}
+            >
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
+              <MapPin size={11} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="truncate max-w-[95px] sm:max-w-[140px] font-bold">
+                {locationName || (language === 'bn' ? 'বর্তমান অবস্থান' : 'Current Location')}
+              </span>
+              <span className="text-[10px] text-emerald-500/70 group-hover:translate-x-0.5 transition-transform shrink-0">▾</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Quick Nearby Mosques Pill */}
+          <button 
+            onClick={() => setActiveTab('nearby-mosques')}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-[11px] font-bold active:scale-95 transition-all shadow-2xs"
+            title={language === 'bn' ? 'কাছের মসজিদ দেখুন (৩০০ কিমি)' : 'Nearby Mosques (300 km)'}
+          >
+            <span className="text-xs">🕌</span>
+            <span className="hidden xs:inline">{language === 'bn' ? 'কাছের মসজিদ' : 'Mosques'}</span>
+          </button>
+
           {/* User Guide Button in Header */}
           <button
             onClick={() => setIsGuideModalOpen(true)}
             aria-label="App Guide"
-            className="p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700/60 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 active:scale-95 transition-all flex items-center gap-1"
+            className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-2xs border border-slate-200/70 dark:border-slate-700/60 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 active:scale-95 transition-all flex items-center justify-center"
             title={language === 'bn' ? 'অ্যাপ ব্যবহার নির্দেশিকা ও গাইড' : 'App User Guide'}
           >
-            <HelpCircle size={19} />
-            <span className="hidden sm:inline text-[11px] font-black">{language === 'bn' ? 'নির্দেশিকা' : 'Guide'}</span>
+            <HelpCircle size={18} />
           </button>
 
           {/* Saved Bookmarks Hub Button */}
           <button
             onClick={() => setIsBookmarkModalOpen(true)}
             aria-label="Bookmarks"
-            className="relative p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all"
+            className="relative p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-2xs border border-slate-200/70 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all flex items-center justify-center"
             title={language === 'bn' ? 'সংরক্ষিত বুকমার্ক' : 'Saved Bookmarks'}
           >
-            <BookmarkIcon size={19} />
+            <BookmarkIcon size={18} />
             {bookmarks.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white font-black text-[9px] flex items-center justify-center shadow-sm">
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-white font-black text-[9px] flex items-center justify-center shadow-xs">
                 {bookmarks.length > 9 ? '9+' : bookmarks.length}
               </span>
             )}
@@ -737,12 +1001,12 @@ const AppContent: React.FC = () => {
           <button
             onClick={() => setIsNotificationModalOpen(true)}
             aria-label="Notifications"
-            className="relative p-2.5 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all"
+            className="relative p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-2xs border border-slate-200/70 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:text-amber-500 active:scale-95 transition-all flex items-center justify-center"
             title={language === 'bn' ? 'বার্তা ও বিজ্ঞপ্তি' : 'Announcements & Notifications'}
           >
-            <Bell size={19} />
+            <Bell size={18} />
             {unreadAnnouncementsCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white font-black text-[10px] flex items-center justify-center shadow-md animate-pulse">
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-4 px-1 rounded-full bg-rose-500 text-white font-black text-[9px] flex items-center justify-center shadow-xs animate-pulse">
                 {unreadAnnouncementsCount > 9 ? '9+' : unreadAnnouncementsCount}
               </span>
             )}
@@ -753,76 +1017,55 @@ const AppContent: React.FC = () => {
       {/* 1. Animated Salam Greeting with Voice Recitation */}
       <SalamGreeting userName={userName} />
 
-      {/* 2. Sleek Theme Color Dots (Only the 5 circular color dots, zero wasted space) */}
-      <div className="flex items-center justify-between py-0.5 px-0.5">
-        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-          {language === 'bn' ? 'থিম কালার:' : 'Theme Color:'}
-        </span>
-        <div className="flex items-center gap-2.5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 shadow-xs">
-          {THEME_LIST.map((th) => {
-            const isCurr = islamicTheme === th.id;
-            return (
-              <button
-                key={th.id}
-                onClick={() => {
-                  setIslamicTheme(th.id);
-                  setThemeToast(th);
-                  setTimeout(() => setThemeToast(null), 3000);
-                  if ('vibrate' in navigator) navigator.vibrate(25);
-                }}
-                title={th.nameBn}
-                aria-label={th.nameBn}
-                className={`relative w-5 h-5 rounded-full transition-all duration-200 active:scale-90 flex items-center justify-center ${
-                  isCurr 
-                    ? 'ring-2 ring-offset-2 ring-slate-700 dark:ring-offset-slate-900 scale-110 shadow-sm' 
-                    : 'hover:scale-110 opacity-75 hover:opacity-100'
-                }`}
-                style={{
-                  backgroundColor: th.primaryColor
-                }}
-              >
-                {isCurr && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-white shadow-xs" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2.2 Dedicated Interactive App User Guide Card */}
-      <div 
-        onClick={() => setIsGuideModalOpen(true)}
-        className="p-4 rounded-[2.2rem] bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-800 text-white shadow-lg shadow-emerald-900/15 cursor-pointer active:scale-[0.98] transition-all group flex items-center justify-between gap-3 border border-white/15 relative overflow-hidden"
-      >
-        <div className="flex items-center gap-3.5 overflow-hidden relative z-10">
-          <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0 shadow-md border border-white/30 group-hover:scale-110 transition-transform">
-            <BookOpen size={22} className="text-amber-300 drop-shadow-sm" />
-          </div>
-          <div className="overflow-hidden">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-400 text-emerald-950">
-                {language === 'bn' ? 'সহজ নির্দেশিকা' : 'App Guide'}
-              </span>
-              <span className="text-[10px] text-emerald-200 font-bold uppercase tracking-widest">
-                {language === 'bn' ? 'ব্যবহার গাইড' : 'Features Manual'}
-              </span>
-            </div>
-            <h3 className="font-black text-sm sm:text-base truncate">
-              {language === 'bn' ? 'অ্যাপসে কোথায় কি আছে ও কীভাবে ব্যবহার করবেন?' : 'Where is everything & How to use the app?'}
-            </h3>
-            <p className="text-xs text-white/85 font-medium truncate">
-              {language === 'bn' ? 'কুরআন, মসজিদ, সোশ্যাল কার্ড, নামাজ ও আমল সম্পর্কিত বিস্তারিত গাইড' : 'Complete step-by-step guidance for all features'}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0 relative z-10">
-          <span className="px-3 py-1.5 rounded-xl bg-white text-emerald-900 text-xs font-black shadow-xs group-hover:bg-amber-300 transition-colors flex items-center gap-1">
-            <span>{language === 'bn' ? 'নির্দেশিকা দেখুন' : 'View Guide'}</span>
-            <ChevronRight size={14} />
+      {/* 2. Sleek Theme Color Dots & Hijri Calendar Date Strip (Compact, organized) */}
+      <div className="flex items-center justify-between py-1 px-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            {language === 'bn' ? 'থিম:' : 'Theme:'}
           </span>
+          <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+            {THEME_LIST.map((th) => {
+              const isCurr = islamicTheme === th.id;
+              return (
+                <button
+                  key={th.id}
+                  onClick={() => {
+                    setIslamicTheme(th.id);
+                    setThemeToast(th);
+                    setTimeout(() => setThemeToast(null), 3000);
+                    if ('vibrate' in navigator) navigator.vibrate(25);
+                  }}
+                  title={th.nameBn}
+                  aria-label={th.nameBn}
+                  className={`relative w-4.5 h-4.5 rounded-full transition-all duration-200 active:scale-90 flex items-center justify-center ${
+                    isCurr 
+                      ? 'ring-2 ring-offset-2 ring-slate-700 dark:ring-offset-slate-900 scale-110 shadow-xs' 
+                      : 'hover:scale-110 opacity-70 hover:opacity-100'
+                  }`}
+                  style={{
+                    backgroundColor: th.primaryColor
+                  }}
+                >
+                  {isCurr && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-white shadow-2xs" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {/* Hijri Calendar Date Badge */}
+        {prayerData?.hijri && (
+          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100/90 dark:bg-slate-800/90 px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-slate-700/50 shadow-2xs">
+            <span className="text-amber-500">🌙</span>
+            <span>
+              {language === 'bn' 
+                ? `${prayerData.hijri.day} ${prayerData.hijri.month.ar || prayerData.hijri.month.en}, ${prayerData.hijri.year} হিজরি`
+                : `${prayerData.hijri.day} ${prayerData.hijri.month.en}, ${prayerData.hijri.year} AH`}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 2.4 AUTOMATIC RAMADAN SPECIAL HIGHLIGHT (Continuously animated when Ramadan arrives) */}
@@ -1025,6 +1268,7 @@ const AppContent: React.FC = () => {
                 if (item.id === 'guide') {
                   setTimeout(() => setIsGuideModalOpen(true), 220);
                 } else {
+                  setPreviousTab('home');
                   setTimeout(() => setActiveTab(item.id), 220);
                 }
               }}
@@ -1286,10 +1530,15 @@ const AppContent: React.FC = () => {
       <div className="flex justify-between items-center px-1">
         <div>
           <h2 className="text-3xl font-black tracking-tight">{t.prayerTimes}</h2>
-          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 mt-1">
+          <button 
+            onClick={() => setIsLocationModalOpen(true)}
+            className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 mt-1 transition-colors active:scale-95 group cursor-pointer"
+            title={language === 'bn' ? 'অবস্থান পরিবর্তন বা রিফ্রেশ করুন' : 'Change or refresh location'}
+          >
              <MapPin size={12} style={{ color: activeThemeConfig.primaryColor }} />
              <span className="text-[10px] font-bold uppercase tracking-wider">{locationName || t.currentLocation}</span>
-          </div>
+             <span className="text-[9px] text-slate-400 group-hover:translate-x-0.5 transition-transform">▾</span>
+          </button>
         </div>
         <div 
           className="p-4 rounded-2xl shadow-sm"
@@ -1423,15 +1672,16 @@ const AppContent: React.FC = () => {
             ))}
           </div>
 
-          {/* Ramadan Conditional Section (Only shown during Ramadan; otherwise shows Masnoon Duas & Daily Dhikr) */}
+          {/* Ramadan Conditional Section (Only shown during Ramadan or when Ramadan Demo/Highlight is Active) */}
           {(() => {
-            const isCurrentlyRamadan = Boolean(
+            const isRamadanActive = Boolean(
               prayerData?.hijri?.month?.number === 9 || 
               prayerData?.hijri?.month?.en?.toLowerCase().includes('ramadan') ||
-              prayerData?.hijri?.month?.ar?.includes('رمضان')
+              prayerData?.hijri?.month?.ar?.includes('رمضان') ||
+              isRamadanDemoActive
             );
 
-            if (isCurrentlyRamadan || showRamadanCalendarPreview) {
+            if (isRamadanActive || showRamadanCalendarPreview) {
               return (
                 <div className="pt-6 space-y-4">
                   <div className="flex items-center justify-between">
@@ -1963,6 +2213,9 @@ const AppContent: React.FC = () => {
           </div>
         </section>
 
+        {/* PWA Home Screen Installation Banner */}
+        <PWAInstallButton variant="banner" />
+
         {/* Offline Manager Section */}
         <OfflineManager />
 
@@ -2031,39 +2284,131 @@ const AppContent: React.FC = () => {
           </div>
         </section>
 
-        {/* Ramadan Occasion Highlight Preference (Auto + Live Preview Toggle) */}
+        {/* Ramadan Occasion Highlight Preference Toggle */}
         <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 sm:p-8 shadow-sm border border-slate-100 dark:border-slate-700">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/60 rounded-xl flex items-center justify-center text-amber-600">
                 <Moon size={20} className="fill-amber-500/20" />
               </div>
               <div>
                 <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
-                  {language === 'bn' ? 'মাহে রমাদান স্পেশাল হাইলাইট' : 'Ramadan Special Highlight'}
+                  {language === 'bn' ? 'অটোমেটিক হাইলাইট ইন রমাদান' : 'Automatic Highlight in Ramadan'}
                 </h3>
                 <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  {isCurrentlyRamadan 
-                    ? (language === 'bn' ? 'রমাদান স্পেশাল অ্যানিমেশন চলমান' : 'Ramadan Live Animation Active')
-                    : (language === 'bn' ? 'রমাদান মাস এলে স্বয়ংক্রিয়ভাবে সক্রিয় হবে' : 'Automatically highlights in Ramadan')}
+                  {isRamadanDemoActive
+                    ? (language === 'bn' ? 'রমাদান টেস্ট মোড সক্রিয় (সবার জন্য হাইলাইট)' : 'Ramadan Special Mode Force Enabled')
+                    : (language === 'bn' ? 'রমাদান মাস এলে স্বয়ংক্রিয়ভাবে সক্রিয় হবে' : 'Automatically activates during Ramadan')}
                 </p>
               </div>
             </div>
 
             <button
               onClick={toggleRamadanDemoActive}
-              className={`w-14 h-8 rounded-full relative p-1 transition-colors duration-500 ${isRamadanDemoActive ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'}`}
-              title={language === 'bn' ? 'রমাদান লাইভ অ্যানিমেশন টেস্ট করুন' : 'Test Ramadan Live Animation'}
+              className={`w-14 h-8 rounded-full relative p-1 transition-colors duration-300 ${
+                isRamadanDemoActive ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-700'
+              }`}
+              title={language === 'bn' ? 'রমাদান হাইলাইট চালু/বন্ধ করুন' : 'Toggle Ramadan Highlight'}
             >
-              <div className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-500 ${isRamadanDemoActive ? 'translate-x-6' : 'translate-x-0'}`} />
+              <div
+                className={`w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-300 ${
+                  isRamadanDemoActive ? 'translate-x-6' : 'translate-x-0'
+                }`}
+              />
             </button>
           </div>
 
           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
             {language === 'bn'
-              ? 'রমাদান মাস শুরু হওয়া মাত্রই হোমস্ক্রিনে এবং প্রেয়ার টাইমে ডেডিকেটেড রমাদান স্পেশাল সেকশনটি ঝলমলে অ্যানিমেশনের মাধ্যমে স্বয়ংক্রিয়ভাবে হাইলাইট হয়ে যাবে।'
-              : 'As soon as Ramadan starts, the app automatically illuminates and continuously animates the Ramadan Special section across the app.'}
+              ? 'এটি অন থাকলে রমাদানের বিশেষ হাইলাইট, চাঁদ রাতের ব্যানার এবং সময়সূচি সবসময় হোমস্ক্রিনে সক্রিয় থাকবে।'
+              : 'When enabled, the dedicated Ramadan special banner, countdowns, and schedule highlights remain active.'}
           </p>
+        </section>
+
+        {/* Logo Assets Download Section */}
+        <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 sm:p-8 shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/60 rounded-xl flex items-center justify-center text-emerald-600">
+                <Download size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">
+                  {language === 'bn' ? 'অ্যাপ লোগো অ্যান্ড অ্যাসেটস' : 'Logo Assets'}
+                </h3>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  {language === 'bn' ? 'হাই-রেজোলিউশন অফিশিয়াল লোগো ডাউনলোড' : 'Download High-Res Official App Logo'}
+                </p>
+              </div>
+            </div>
+
+            <span className="px-3 py-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[10px] font-black rounded-full uppercase tracking-wider">
+              HD Vector & PNG
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-6 p-5 bg-slate-50 dark:bg-slate-900/60 rounded-3xl border border-slate-100 dark:border-slate-800">
+            {/* Logo Preview */}
+            <div className="relative w-24 h-24 shrink-0 rounded-2xl overflow-hidden shadow-md border border-amber-400/30 bg-slate-950 flex items-center justify-center">
+              <img src="/icon.svg" alt="Al-Shahin Quran App Logo" className="w-full h-full object-cover" />
+            </div>
+
+            <div className="flex-1 text-center sm:text-left space-y-2">
+              <h4 className="font-black text-sm text-slate-800 dark:text-slate-100">
+                {language === 'bn' ? 'আল-শাহীন কুরআন অফিশিয়াল লোগো' : 'Al-Shahin Quran Official Emblem Logo'}
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                {language === 'bn'
+                  ? 'প্লে-স্টোর, সোশ্যাল মিডিয়া অথবা ব্যানারে ব্যবহারের জন্য অরিজিনাল ভেক্টর এসভিজি (SVG) বা হাই-রেজ ৪কে পিএনজি (PNG) ফরম্যাটে নামিয়ে নিন।'
+                  : 'Download the official vector SVG or 1024x1024 HD PNG app logo directly to your device storage.'}
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = '/icon.svg';
+                    a.download = 'Al-Shahin-Quran-App-Logo.svg';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black shadow-md flex items-center gap-2 transition-all"
+                >
+                  <Download size={15} />
+                  <span>{language === 'bn' ? 'SVG ডাউনলোড' : 'Download SVG'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => {
+                      const canvas = document.createElement('canvas');
+                      canvas.width = 1024;
+                      canvas.height = 1024;
+                      const ctx = canvas.getContext('2d');
+                      if (ctx) {
+                        ctx.drawImage(img, 0, 0, 1024, 1024);
+                        const pngUrl = canvas.toDataURL('image/png');
+                        const a = document.createElement('a');
+                        a.href = pngUrl;
+                        a.download = 'Al-Shahin-Quran-App-Logo-1024x1024.png';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                      }
+                    };
+                    img.src = '/icon.svg';
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 text-white text-xs font-black active:scale-95 flex items-center gap-2 transition-all"
+                >
+                  <Download size={15} />
+                  <span>{language === 'bn' ? 'PNG (1024x1024)' : 'Download PNG'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
         <section className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-sm border border-slate-100 dark:border-slate-700">
           <div className="flex items-center gap-3 mb-8"><Sliders className="text-emerald-600" size={20} /><h3 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">{t.fontSize}</h3></div>
@@ -2138,140 +2483,6 @@ const AppContent: React.FC = () => {
               </div>
             </button>
 
-            {/* Test Prayer Reminder Button */}
-            <button
-              onClick={async () => {
-                await requestSystemNotificationPermission();
-                
-                const now = new Date();
-                const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-                const timings = prayerData?.timings || {
-                  Fajr: '05:00',
-                  Dhuhr: '12:05',
-                  Asr: '15:30',
-                  Maghrib: '17:35',
-                  Isha: '18:50'
-                };
-
-                const parseMins = (tStr: string, key: string) => {
-                  if (!tStr) return 0;
-                  const raw = tStr.trim().toLowerCase();
-                  const isPM = raw.includes('pm');
-                  const isAM = raw.includes('am');
-                  const cleaned = raw.replace(/[^\d:]/g, '');
-                  const [hStr, mStr] = cleaned.split(':');
-                  let h = parseInt(hStr, 10) || 0;
-                  const m = parseInt(mStr, 10) || 0;
-                  if (isPM && h < 12) h += 12;
-                  if (isAM && h === 12) h = 0;
-                  if (!isPM && !isAM) {
-                    if (key === 'Dhuhr' && h < 10) h += 12;
-                    if (key === 'Asr' && h < 12) h += 12;
-                    if (key === 'Maghrib' && h < 12) h += 12;
-                    if (key === 'Isha' && h < 12) h += 12;
-                  }
-                  return h * 60 + m;
-                };
-
-                const formatTimeClean = (tStr: string) => tStr ? tStr.split(' ')[0] : '';
-
-                const fMins = parseMins(timings.Fajr, 'Fajr');
-                const dMins = parseMins(timings.Dhuhr, 'Dhuhr');
-                const aMins = parseMins(timings.Asr, 'Asr');
-                const mMins = parseMins(timings.Maghrib, 'Maghrib');
-                const iMins = parseMins(timings.Isha, 'Isha');
-
-                const prayers = {
-                  Fajr: { nameBn: 'ফজর', nameEn: 'Fajr', time: formatTimeClean(timings.Fajr) },
-                  Dhuhr: { nameBn: 'যোহর', nameEn: 'Dhuhr', time: formatTimeClean(timings.Dhuhr) },
-                  Asr: { nameBn: 'আসর', nameEn: 'Asr', time: formatTimeClean(timings.Asr) },
-                  Maghrib: { nameBn: 'মাগরিব', nameEn: 'Maghrib', time: formatTimeClean(timings.Maghrib) },
-                  Isha: { nameBn: 'এশা', nameEn: 'Isha', time: formatTimeClean(timings.Isha) },
-                };
-
-                let currP = prayers.Isha;
-                let nextP = prayers.Fajr;
-
-                if (currentTimeMinutes >= fMins && currentTimeMinutes < dMins) {
-                  currP = prayers.Fajr;
-                  nextP = prayers.Dhuhr;
-                } else if (currentTimeMinutes >= dMins && currentTimeMinutes < aMins) {
-                  currP = prayers.Dhuhr;
-                  nextP = prayers.Asr;
-                } else if (currentTimeMinutes >= aMins && currentTimeMinutes < mMins) {
-                  currP = prayers.Asr;
-                  nextP = prayers.Maghrib;
-                } else if (currentTimeMinutes >= mMins && currentTimeMinutes < iMins) {
-                  currP = prayers.Maghrib;
-                  nextP = prayers.Isha;
-                } else {
-                  // currentTimeMinutes >= iMins || currentTimeMinutes < fMins
-                  currP = prayers.Isha;
-                  nextP = prayers.Fajr;
-                }
-
-                const title = language === 'bn' 
-                  ? `🕌 নামাজের রিমাইন্ডার টেস্ট: ${currP.nameBn}` 
-                  : language === 'de' 
-                  ? `Gebetszeit Test: ${currP.nameEn}` 
-                  : language === 'es' 
-                  ? `Prueba de oración: ${currP.nameEn}` 
-                  : language === 'ar' 
-                  ? `اختبار وقت الصلاة: ${currP.nameEn}` 
-                  : language === 'hi' 
-                  ? `नमाज़ का समय परीक्षण: ${currP.nameEn}` 
-                  : `Prayer Time Test: ${currP.nameEn}`;
-
-                const body = language === 'bn' 
-                  ? `আলহামদুলিল্লাহ! রিমাইন্ডার সফলভাবে কাজ করছে। বর্তমান ওয়াক্ত: ${currP.nameBn} (${currP.time}) • পরবর্তী ওয়াক্ত: ${nextP.nameBn} (${nextP.time})।` 
-                  : language === 'de' 
-                  ? `Alhamdulillah! Erinnerung funktioniert. Aktuelles Gebet: ${currP.nameEn} (${currP.time}) • Nächstes: ${nextP.nameEn} (${nextP.time}).` 
-                  : language === 'es' 
-                  ? `¡Alhamdulillah! Recordatorio funcionando. Oración actual: ${currP.nameEn} (${currP.time}) • Próxima: ${nextP.nameEn} (${nextP.time}).` 
-                  : language === 'ar' 
-                  ? `الحمد لله! تذكير الصلاة يعمل بنجاح. الوقت الحالي: ${currP.nameEn} (${currP.time}) • التالي: ${nextP.nameEn} (${nextP.time}).` 
-                  : language === 'hi' 
-                  ? `अलhamdulillah! अनुस्मारक काम कर रहा है। वर्तमान: ${currP.nameEn} (${currP.time}) • अगला: ${nextP.nameEn} (${nextP.time})।` 
-                  : `Alhamdulillah! Prayer reminder test successful. Current: ${currP.nameEn} (${currP.time}) • Next: ${nextP.nameEn} (${nextP.time}).`;
-                
-                triggerSystemNotification(title, body);
-                playPoliteChime();
-
-                // Trigger in-app announcement banner popup so user instantly sees it on screen
-                setLatestUnseenAnnouncement({
-                  id: 'test-' + Date.now(),
-                  title,
-                  message: body,
-                  occasion: 'ramadan',
-                  priority: 'urgent',
-                  senderName: 'Al-Muneer System',
-                  senderEmail: 'system@almuneer.app',
-                  createdAt: new Date().toISOString()
-                });
-              }}
-              className="w-full flex items-center justify-between p-5 bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/20 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:border-amber-500/50"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-amber-500 text-white rounded-xl flex items-center justify-center shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
-                  <Bell size={18} />
-                </div>
-                <div className="text-left">
-                  <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>{language === 'bn' ? 'নামাজ রিমাইন্ডার টেস্ট করুন' : language === 'de' ? `Gebetserinnerung testen` : language === 'es' ? `Probar recordatorio` : `Test Prayer Reminder`}</span>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white">
-                      Live Test
-                    </span>
-                  </h4>
-                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                    {language === 'bn' ? 'নির্বাচিত ভাষায় রিমাইন্ডার পপআপ ও চিম সাউন্ড চেক করুন' : 'Test reminder notification & audio chime in current language'}
-                  </p>
-                </div>
-              </div>
-              <div className="p-2 bg-white dark:bg-slate-800 rounded-full text-amber-500 group-hover:translate-x-0.5 transition-transform shadow-sm">
-                <ChevronRight size={18} />
-              </div>
-            </button>
-
             {/* User to Admin Contact & Email Button */}
             <button
               onClick={() => setIsContactAdminModalOpen(true)}
@@ -2310,8 +2521,9 @@ const AppContent: React.FC = () => {
                 <div className="text-left">
                   <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
                     <span>{language === 'bn' ? 'ইউজারদের মেসেজ পাঠান ও ইনবক্স (অ্যাডমিন)' : 'Broadcast & Inbox (Admin)'}</span>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white">
-                      Admin
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500 text-white flex items-center gap-1">
+                      <Lock size={9} />
+                      <span>{language === 'bn' ? 'পাসওয়ার্ড আবশ্যক' : 'Pass Protected'}</span>
                     </span>
                   </h4>
                   <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
@@ -2417,7 +2629,10 @@ const AppContent: React.FC = () => {
                  <div className="text-left">
                    <h4 className="font-black text-sm text-slate-800 dark:text-slate-100 flex items-center gap-2">
                      <span>{language === 'bn' ? 'অ্যাডমিন কন্ট্রোল সেন্টার' : 'Admin Control Center'}</span>
-                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white uppercase">PIN</span>
+                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-white uppercase flex items-center gap-1">
+                      <Lock size={9} />
+                      <span>{language === 'bn' ? 'পাসওয়ার্ড আবশ্যক' : 'Password'}</span>
+                    </span>
                    </h4>
                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                      {language === 'bn' ? 'ব্রডকাস্ট নোটিফিকেশন ও ইউজার ইনবক্স' : 'Broadcast & User Messages'}
@@ -2429,7 +2644,7 @@ const AppContent: React.FC = () => {
                </div>
              </button>
 
-             <button onClick={() => setActiveTab('developer')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800">
+             <button onClick={() => { setPreviousTab('settings'); setActiveTab('developer'); }} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800">
                <div className="flex items-center gap-4">
                  <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/40 rounded-xl flex items-center justify-center text-blue-600">
                    <Code size={18} />
@@ -2444,7 +2659,7 @@ const AppContent: React.FC = () => {
                </div>
              </button>
 
-             <button onClick={() => setActiveTab('donation')} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800">
+             <button onClick={() => { setPreviousTab('settings'); setActiveTab('donation'); }} className="w-full flex items-center justify-between p-5 bg-slate-50 dark:bg-slate-900 rounded-[1.5rem] group active:scale-[0.98] transition-all hover:bg-slate-100 dark:hover:bg-slate-800">
                <div className="flex items-center gap-4">
                  <div className="w-10 h-10 bg-pink-100 dark:bg-pink-900/40 rounded-xl flex items-center justify-center text-pink-600">
                    <Heart size={18} />
@@ -2473,7 +2688,7 @@ const AppContent: React.FC = () => {
       className="space-y-6 pt-4 pb-12"
     >
       <div className="flex items-center gap-4 mb-6">
-        <button onClick={() => setActiveTab('settings')} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl active:scale-90 transition-transform">
+        <button onClick={() => setActiveTab(previousTab === 'developer' ? 'home' : (previousTab || 'home'))} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl active:scale-90 transition-transform">
           <ArrowLeft size={20} className="text-slate-600 dark:text-slate-300" />
         </button>
         <h2 className="text-2xl font-black tracking-tight">{t.developerInfo}</h2>
@@ -2551,7 +2766,7 @@ const AppContent: React.FC = () => {
       className="space-y-6 pt-4 pb-12"
     >
       <div className="flex items-center gap-4 mb-6">
-        <button onClick={() => setActiveTab('settings')} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl active:scale-90 transition-transform">
+        <button onClick={() => setActiveTab(previousTab === 'donation' ? 'home' : (previousTab || 'home'))} className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl active:scale-90 transition-transform">
           <ArrowLeft size={20} className="text-slate-600 dark:text-slate-300" />
         </button>
         <h2 className="text-2xl font-black tracking-tight">{t.donation}</h2>
@@ -2799,12 +3014,16 @@ const AppContent: React.FC = () => {
     </motion.div>
   );
 
+  const handleDismissSplash = React.useCallback(() => {
+    setShowSplash(false);
+  }, []);
+
   return (
     <>
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {showSplash && (
           <AnimatedSplashScreen 
-            onComplete={() => setShowSplash(false)} 
+            onComplete={handleDismissSplash} 
             language={language}
           />
         )}
@@ -2815,7 +3034,6 @@ const AppContent: React.FC = () => {
         setActiveTab={(tab) => { setActiveTab(tab); setSelectedSurah(null); }} 
         hideNav={!!selectedSurah || ['developer', 'donation', 'tasbih', 'games', 'ramadan', 'duas', 'khatam', 'names99', 'zakat', 'jummah', 'nearby-mosques'].includes(activeTab)}
       >
-      {isLoading && <div className="fixed inset-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center"><div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}
       <AnimatePresence mode="wait">
         {selectedSurah ? renderSurahDetail() : (
           <div className="pb-8" key="main-content">
@@ -2839,7 +3057,17 @@ const AppContent: React.FC = () => {
             {activeTab === 'names99' && <AsmaulHusnaView setActiveTab={setActiveTab} />}
             {activeTab === 'zakat' && <ZakatCalculatorView setActiveTab={setActiveTab} />}
             {activeTab === 'jummah' && <FridayJummahHub setActiveTab={setActiveTab} onReadSurahKahf={() => handleSurahClick(18)} />}
-            {activeTab === 'nearby-mosques' && <NearbyMosquesView onBack={() => setActiveTab('home')} userLocationName={locationName} />}
+            {activeTab === 'nearby-mosques' && (
+              <NearbyMosquesView 
+                onBack={() => setActiveTab('home')} 
+                userLocationName={locationName} 
+                userCoordinates={userCoordinates}
+                onUpdateLocation={(coords, name) => {
+                  setUserCoordinates(coords);
+                  if (name) setLocationName(name);
+                }}
+              />
+            )}
             {activeTab === 'settings' && renderSettings()}
             {activeTab === 'developer' && renderDeveloperPage()}
             {activeTab === 'donation' && renderDonationPage()}
@@ -2854,6 +3082,17 @@ const AppContent: React.FC = () => {
         onSelectBookmark={(surahNum, ayahNum) => {
           handleSurahClick(surahNum, ayahNum);
         }}
+      />
+      <LocationModal
+        isOpen={isLocationModalOpen}
+        onClose={() => setIsLocationModalOpen(false)}
+        currentLocationName={locationName}
+        userCoordinates={userCoordinates}
+        onRefreshGPS={handleRefreshGPS}
+        isRefreshingGPS={isRefreshingGPS}
+        onOpenNearbyMosques={() => setActiveTab('nearby-mosques')}
+        onOpenAdminPanel={() => setIsAdminBroadcastModalOpen(true)}
+        language={language}
       />
       <UpdateModal 
         updateInfo={updateInfo} 
@@ -2892,6 +3131,13 @@ const AppContent: React.FC = () => {
           const readIds = getReadAnnouncementIds();
           setReadAnnouncementIds(readIds);
         }}
+        onNavigateToTab={(tab) => {
+          setActiveTab(tab);
+          setIsAdminBroadcastModalOpen(false);
+        }}
+        isRamadanDemoActive={isRamadanDemoActive}
+        onToggleRamadanDemo={toggleRamadanDemoActive}
+        onTriggerPrayerReminderTest={handleTriggerPrayerReminderTest}
       />
       <InAppNotificationBanner
         announcement={latestUnseenAnnouncement}
@@ -3060,7 +3306,7 @@ const AyahItem: React.FC<AyahItemProps> = ({ ayah, surah, readingViewMode = 'all
                 onOpenSocialCard({
                   surahNumber: surah.number,
                   ayahNumber: ayah.numberInSurah,
-                  surahNameBn: BENGALI_SURAH_NAMES[surah.number] || surah.englishName,
+                  surahNameBn: Array.isArray(BENGALI_SURAH_NAMES[surah.number]) ? BENGALI_SURAH_NAMES[surah.number][0] : surah.englishName,
                   surahNameEn: surah.englishName,
                   arabicText: ayah.text,
                   bengaliTranslation: ayah.translation

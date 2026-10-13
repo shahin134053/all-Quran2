@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  ArrowLeft, Search, Volume2, Copy, Check, Share2, 
+  ArrowLeft, Search, Volume2, VolumeX, Copy, Check, Share2, 
   Sparkles, Bookmark, BookOpen, Heart, RefreshCw, 
-  CheckCircle2, Compass, Shield, Sun, Moon, AlertCircle
+  CheckCircle2, Compass, Shield, Sun, Moon, AlertCircle,
+  Headphones, Languages
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { playAudioText, stopAllAudio } from '../utils/audioHelper';
 
 export interface DuaItem {
   id: string;
@@ -17,6 +19,7 @@ export interface DuaItem {
   virtueBn: string;
   reference: string;
   repeatTarget?: number;
+  audioUrl?: string;
 }
 
 export const HISNUL_MUSLIM_DUAS: DuaItem[] = [
@@ -52,7 +55,8 @@ export const HISNUL_MUSLIM_DUAS: DuaItem[] = [
     meaningBn: 'আল্লাহ, তিনি ছাড়া কোনো সত্য উপাস্য নেই, তিনি চিরঞ্জীব, সবকিছুর ধারক...',
     virtueBn: 'রাতের বেলা শোওয়ার আগে আয়াতুল কুরসী পাঠ করলে সারারাত আল্লাহর পক্ষ থেকে একজন রক্ষাকারী ফেরেশতা নিয়োজিত থাকে এবং শয়তান কাছে আসতে পারে না।',
     reference: 'সহীহ বুখারী: ২৩১১ (সূরা আল-বাক্বারাহ: ২৫৫)',
-    repeatTarget: 1
+    repeatTarget: 1,
+    audioUrl: 'https://everyayah.com/data/Alafasy_128kbps/002255.mp3'
   },
 
   // সকাল ও সন্ধ্যার জিকির ও হিফাজত
@@ -143,7 +147,7 @@ export const HISNUL_MUSLIM_DUAS: DuaItem[] = [
     pronunciationBn: 'বিস্‌মিল্লাহি ওয়ালাজনা, ওয়া বিস্‌মিল্লাহি খারাজনা, ওয়া \'আলাল্লাহি রব্বিনা তাওয়াক্কালনা।',
     meaningBn: 'আল্লাহর নামে আমরা প্রবেশ করলাম, আল্লাহর নামে আমরা বের হলাম এবং আমাদের রব আল্লাহর ওপরই আমরা ভরসা করলাম।',
     virtueBn: 'ঘরে প্রবেশের সময় সালাম দিয়ে এ দু\'আ পড়লে শয়তান বলে: এখানে আজ রাতে আমাদের থাকা ও খাওয়ার কোনো স্থান নেই।',
-    reference: 'সুনানে আবু দাউদ: ৫০৯৬',
+    reference: 'সুনানে আবু دাউদ: ৫০৯৬',
     repeatTarget: 1
   },
 
@@ -168,7 +172,8 @@ export const HISNUL_MUSLIM_DUAS: DuaItem[] = [
     meaningBn: 'আপনি ছাড়া কোনো সত্য উপাস্য নেই, আপনি মহাপবিত্র! নিশ্চয় আমি জালিমদের অন্তর্ভুক্ত ছিলাম।',
     virtueBn: 'রাসুলুল্লাহ (ﷺ) বলেছেন: যে কোনো মুসলিম বিপদে পড়ে এই দু\'আ করলে আল্লাহ তা\'আলা অবশ্যই তার ডাক শোনেন এবং বিপদ দূর করেন।',
     reference: 'সূরা আল-আম্বিয়া: ৮৭, জামে তিরমিযী: ৩৫০৫',
-    repeatTarget: 1
+    repeatTarget: 1,
+    audioUrl: 'https://everyayah.com/data/Alafasy_128kbps/021087.mp3'
   },
   {
     id: 'health-shifa',
@@ -192,7 +197,8 @@ export const HISNUL_MUSLIM_DUAS: DuaItem[] = [
     meaningBn: 'হে আমার রব! তাদের উভয়ের প্রতি দয়া করুন, যেভাবে শৈশবে তারা আমাকে লালন-পালন করেছেন।',
     virtueBn: 'সন্তানের এ দু\'আর কারণে কবরে থাকা পিতা-মাতার মর্যাদা আল্লাহ তা\'আলা বহু গুণ বৃদ্ধি করে দেন।',
     reference: 'সূরা বনী ইসরাঈল: ২৪',
-    repeatTarget: 1
+    repeatTarget: 1,
+    audioUrl: 'https://everyayah.com/data/Alafasy_128kbps/017024.mp3'
   }
 ];
 
@@ -219,6 +225,8 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ [id: string]: number }>({});
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playingType, setPlayingType] = useState<'arabic' | 'meaning' | null>(null);
+  const [autoPlayMeaning, setAutoPlayMeaning] = useState<boolean>(true);
 
   const filteredDuas = HISNUL_MUSLIM_DUAS.filter(item => {
     const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
@@ -270,21 +278,77 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
     setCounts(prev => ({ ...prev, [id]: 0 }));
   };
 
-  const handleSpeak = (dua: DuaItem) => {
-    if ('speechSynthesis' in window) {
-      if (playingId === dua.id) {
-        window.speechSynthesis.cancel();
-        setPlayingId(null);
-        return;
-      }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(dua.arabic);
-      utterance.lang = 'ar-SA';
-      utterance.rate = 0.85;
-      utterance.onend = () => setPlayingId(null);
-      utterance.onerror = () => setPlayingId(null);
-      setPlayingId(dua.id);
-      window.speechSynthesis.speak(utterance);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  const stopActiveAudio = () => {
+    stopAllAudio();
+    setPlayingId(null);
+    setPlayingType(null);
+  };
+
+  const handleSpeak = (dua: DuaItem, type: 'arabic' | 'meaning' = 'arabic') => {
+    if (playingId === dua.id && playingType === type) {
+      stopActiveAudio();
+      return;
+    }
+
+    setPlayingId(dua.id);
+    setPlayingType(type);
+
+    if (type === 'arabic') {
+      const onArabicFinished = () => {
+        if (autoPlayMeaning) {
+          setTimeout(() => {
+            const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : 'en');
+            playAudioText(
+              `${dua.titleBn}। অর্থ: ${dua.meaningBn}`,
+              targetLang,
+              {
+                onEnd: () => {
+                  setPlayingId(null);
+                  setPlayingType(null);
+                },
+                onError: () => {
+                  setPlayingId(null);
+                  setPlayingType(null);
+                }
+              }
+            );
+          }, 400);
+        } else {
+          setPlayingId(null);
+          setPlayingType(null);
+        }
+      };
+
+      playAudioText(
+        dua.arabic,
+        'ar',
+        {
+          directUrl: dua.audioUrl,
+          onEnd: onArabicFinished,
+          onError: () => {
+            setPlayingId(null);
+            setPlayingType(null);
+          }
+        }
+      );
+    } else {
+      const targetLang = language === 'bn' ? 'bn' : (language === 'hi' ? 'hi' : 'en');
+      playAudioText(
+        `${dua.titleBn}। অর্থ: ${dua.meaningBn}`,
+        targetLang,
+        {
+          onEnd: () => {
+            setPlayingId(null);
+            setPlayingType(null);
+          },
+          onError: () => {
+            setPlayingId(null);
+            setPlayingType(null);
+          }
+        }
+      );
     }
   };
 
@@ -386,6 +450,24 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
         })}
       </div>
 
+      {/* Audio Options Banner */}
+      <div className="flex items-center justify-between p-3.5 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-2xl border border-emerald-100 dark:border-emerald-800/40 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+        <div className="flex items-center gap-2">
+          <Headphones size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span>আরবির সাথেই স্বয়ংক্রিয়ভাবে অনুবাদ শুনুন</span>
+        </div>
+        <button
+          onClick={() => setAutoPlayMeaning(!autoPlayMeaning)}
+          className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5 shrink-0 ${
+            autoPlayMeaning 
+              ? 'bg-emerald-600 text-white shadow-sm' 
+              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+          }`}
+        >
+          {autoPlayMeaning ? 'অটো অর্থ: চালু' : 'অটো অর্থ: বন্ধ'}
+        </button>
+      </div>
+
       {/* Dua Cards List */}
       <div className="space-y-4">
         {filteredDuas.map((dua, index) => {
@@ -413,16 +495,32 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Play Arabic Audio */}
                   <button
-                    onClick={() => handleSpeak(dua)}
-                    title="আরবি উচ্চারণ শুনুন"
-                    className={`p-2 rounded-xl transition-all ${
-                      playingId === dua.id 
-                        ? 'bg-emerald-600 text-white animate-pulse' 
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-emerald-600'
+                    onClick={() => handleSpeak(dua, 'arabic')}
+                    title="আরবি তিলাওয়াত শুনুন"
+                    className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
+                      playingId === dua.id && playingType === 'arabic'
+                        ? 'bg-emerald-600 text-white animate-pulse shadow-md' 
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-600'
                     }`}
                   >
-                    <Volume2 size={16} />
+                    <Volume2 size={15} />
+                    <span className="hidden sm:inline">আরবি</span>
+                  </button>
+
+                  {/* Play Translated Meaning Audio */}
+                  <button
+                    onClick={() => handleSpeak(dua, 'meaning')}
+                    title="বাংলা অর্থ শুনুন"
+                    className={`px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
+                      playingId === dua.id && playingType === 'meaning'
+                        ? 'bg-amber-600 text-white animate-pulse shadow-md' 
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200/60 dark:border-amber-800/40'
+                    }`}
+                  >
+                    <Languages size={15} />
+                    <span className="hidden sm:inline">অর্থ</span>
                   </button>
 
                   <button
@@ -461,10 +559,23 @@ export const HisnulMuslimView: React.FC<HisnulMuslimViewProps> = ({ setActiveTab
               </div>
 
               {/* Bengali Meaning */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 text-xs space-y-1">
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
-                  বাংলা অর্থ:
-                </span>
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                    বাংলা অর্থ:
+                  </span>
+                  <button
+                    onClick={() => handleSpeak(dua, 'meaning')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all ${
+                      playingId === dua.id && playingType === 'meaning'
+                        ? 'bg-amber-600 text-white animate-pulse'
+                        : 'bg-amber-100/70 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/80'
+                    }`}
+                  >
+                    <Volume2 size={13} />
+                    <span>অর্থ শুনুন</span>
+                  </button>
+                </div>
                 <p className="text-slate-800 dark:text-slate-200 font-bold leading-relaxed">
                   {dua.meaningBn}
                 </p>
